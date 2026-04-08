@@ -28,6 +28,11 @@ export class LatexCounterScanner {
         this.reset();
         const results: BlockNumbering[] = [];
 
+        const secRegex = new RegExp(`\\\\(${REGEX_STR.SECTION_LEVELS})(\\*?)\\s*\\{`, 'g');
+        const eqRegex = new RegExp(`\\\\begin\\{(${REGEX_STR.MATH_ENVS})\\}(\\*?)`, 'g');
+        const floatRegex = new RegExp(`\\\\begin\\{(${REGEX_STR.FLOAT_ENVS})\\}`, 'g');
+        const thmRegex = new RegExp(`\\\\begin\\{(${REGEX_STR.THEOREM_ENVS})\\}`, 'g');
+
         blocks.forEach((text, index) => {
             const blockRes: BlockNumbering = {
                 seq: index,
@@ -35,7 +40,7 @@ export class LatexCounterScanner {
             };
 
             // 1. Sections
-            const secRegex = new RegExp(`\\\\(${REGEX_STR.SECTION_LEVELS})(\\*?)\\s*\\{`, 'g');
+            secRegex.lastIndex = 0; // Reset state before reusing global regex
             let match;
             while ((match = secRegex.exec(text)) !== null) {
                 if (match[2] === '*') {continue;}
@@ -53,7 +58,7 @@ export class LatexCounterScanner {
             }
 
             // 2. Equations
-            const eqRegex = new RegExp(`\\\\begin\\{(${REGEX_STR.MATH_ENVS})\\}(\\*?)`, 'g');
+            eqRegex.lastIndex = 0; // Reset state
             while ((match = eqRegex.exec(text)) !== null) {
                 if (match[2] === '*') {continue;}
                 this.counters.eq++;
@@ -64,7 +69,7 @@ export class LatexCounterScanner {
             }
 
             // 3. Floats (Figure, Table, Algorithm)
-            const floatRegex = new RegExp(`\\\\begin\\{(${REGEX_STR.FLOAT_ENVS})\\}`, 'g');
+            floatRegex.lastIndex = 0; // Reset state
             while ((match = floatRegex.exec(text)) !== null) {
                 const type = match[1];
                 let numStr = "";
@@ -72,24 +77,27 @@ export class LatexCounterScanner {
                 else if (type === 'table') { this.counters.tbl++; numStr = String(this.counters.tbl); blockRes.counts.tbl.push(numStr); }
                 else if (type === 'algorithm') { this.counters.alg++; numStr = String(this.counters.alg); blockRes.counts.alg.push(numStr); }
 
-                // [FIX] Pass environment name (type) to handle nested tikz/tables correctly
+                // Pass environment name (type) to handle nested tikz/tables correctly
                 this.extractLabelInEnv(text, match.index, numStr, type);
             }
 
             // 4. Theorems
-            const thmRegex = new RegExp(`\\\\begin\\{(${REGEX_STR.THEOREM_ENVS})\\}`, 'g');
+            thmRegex.lastIndex = 0; // Reset state
             while ((match = thmRegex.exec(text)) !== null) {
                 this.counters.thm++;
                 const numStr = String(this.counters.thm);
                 blockRes.counts.thm.push(numStr);
-                // [FIX] Pass environment name
+                // Pass environment name
                 this.extractLabelInEnv(text, match.index, numStr, match[1]);
             }
 
             results.push(blockRes);
         });
 
-        return { blockNumbering: results, labelMap: this.labelMap };
+        return {
+            blockNumbering: results,
+            labelMap: this.labelMap
+        };
     }
 
     private reset() {
