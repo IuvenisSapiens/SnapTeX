@@ -6,6 +6,7 @@ import { BibTexParser } from '../bib';
 import { LatexDocument } from '../document';
 import { DiffEngine } from '../diff';
 import { IFileProvider } from '../file-provider';
+import { isUriWithinAllowedRoots, normalizePdfRequestPath } from '../panel';
 import { LatexCounterScanner } from '../scanner';
 import { LatexBlockSplitter } from '../splitter';
 import { SmartRenderer } from '../renderer';
@@ -260,5 +261,31 @@ suite('SmartRenderer', () => {
         assert.equal(payload.type, 'full');
         assert.ok(payload.htmls?.[0].includes('xAB'));
         assert.ok(!payload.htmls?.[0].includes('xBA'));
+    });
+});
+
+suite('PDF request validation', () => {
+    test('normalizes safe relative pdf paths', () => {
+        assert.equal(normalizePdfRequestPath('figure.pdf'), 'figure.pdf');
+        assert.equal(normalizePdfRequestPath('./figures/Plot.PDF'), 'figures/Plot.PDF');
+        assert.equal(normalizePdfRequestPath('figures\\plot.pdf'), 'figures/plot.pdf');
+    });
+
+    test('rejects unsafe or unsupported pdf paths', () => {
+        assert.equal(normalizePdfRequestPath('../secret.pdf'), undefined);
+        assert.equal(normalizePdfRequestPath('figures/../secret.pdf'), undefined);
+        assert.equal(normalizePdfRequestPath('/tmp/secret.pdf'), undefined);
+        assert.equal(normalizePdfRequestPath('C:/tmp/secret.pdf'), undefined);
+        assert.equal(normalizePdfRequestPath('figure.png'), undefined);
+        assert.equal(normalizePdfRequestPath(42), undefined);
+    });
+
+    test('checks resolved pdf uris against allowed roots', () => {
+        const root = vscode.Uri.file('/project');
+        const docDir = vscode.Uri.file('/project/chapter');
+
+        assert.equal(isUriWithinAllowedRoots(vscode.Uri.file('/project/chapter/figures/a.pdf'), [docDir, root]), true);
+        assert.equal(isUriWithinAllowedRoots(vscode.Uri.file('/project2/a.pdf'), [root]), false);
+        assert.equal(isUriWithinAllowedRoots(vscode.Uri.parse('https://example.com/a.pdf'), [root]), false);
     });
 });
