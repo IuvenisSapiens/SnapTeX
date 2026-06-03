@@ -443,6 +443,27 @@ suite('SmartRenderer', () => {
         assert.match(html, /data-key="sec:intro"/);
         assert.equal(html.match(/class="latex-block/g)?.length ?? 0, 2);
     });
+
+    test('unwraps resizebox around protected tikz figures', () => {
+        const html = renderBlocks([
+            [
+                '\\begin{figure}[H]',
+                '\\centering',
+                '\\resizebox{\\textwidth}{!}{',
+                '\\begin{tikzpicture}',
+                '\\path coordinate (A) at (0, 0) coordinate (E) at (15, 0);',
+                '\\draw[line width=.5pt] (A) -- (E);',
+                '\\node[dot, label = {$\\htau_{a}$}] at (A) {};',
+                '\\node[dot, label = {$\\htau_{a+1}$}] at (E) {};',
+                '\\end{tikzpicture}}',
+                '\\end{figure}'
+            ].join('\n')
+        ]);
+
+        assert.match(html, /class="tikz-container"/);
+        assert.match(html, /<script type="text\/tikz"/);
+        assert.doesNotMatch(html, /\\resizebox/);
+    });
 });
 
 suite('PDF request validation', () => {
@@ -523,6 +544,16 @@ suite('Webview resource loading', () => {
         assert.match(webviewSource, /window\.ensureTikzJaxLoaded = function\(\)/);
         assert.match(webviewSource, /script\.src = window\.tikzJaxJsUri/);
         assert.match(webviewSource, /querySelector\('script\[type="text\/tikz"\]'\)/);
+    });
+
+    test('marks stuck TikZ renders as failed instead of leaving permanent loaders', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const webviewSource = fs.readFileSync(path.join(repoRoot, 'media', 'webview.html'), 'utf8');
+
+        assert.match(webviewSource, /window\.failPendingTikzContainers = function\(message\)/);
+        assert.match(webviewSource, /window\.watchPendingTikzContainers = function\(root = document\)/);
+        assert.match(webviewSource, /TikZ rendering timed out/);
+        assert.match(webviewSource, /svg\[role="img"\]/);
     });
 });
 

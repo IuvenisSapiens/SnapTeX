@@ -61,9 +61,37 @@
         const message = String(event.reason?.message || event.reason || '');
         if (message.includes('Did not receive an init message') || message.includes('run-tex.js')) {
             window.tikzJaxFailed = true;
+            window.failPendingTikzContainers('TikZ rendering failed.');
             console.warn('[SnapTeX] TikZJax worker failed; disabling TikZ rendering for this webview session.', event.reason);
         }
     });
+
+    window.failPendingTikzContainers = function(message) {
+        document.querySelectorAll('.tikz-container').forEach(container => {
+            if (container.querySelector('svg[role="img"]')) return;
+
+            container.setAttribute('data-tikz-state', 'failed');
+            const errorEl = document.createElement('div');
+            errorEl.className = 'tikz-error';
+            errorEl.style.cssText = 'padding: 12px; color: #8a1f11; background: #fff3f0; border: 1px solid #f0c6bd; font: 12px sans-serif;';
+            errorEl.textContent = message;
+            container.replaceChildren(errorEl);
+        });
+    };
+
+    window.watchPendingTikzContainers = function(root = document) {
+        root.querySelectorAll('.tikz-container').forEach(container => {
+            if (container.getAttribute('data-tikz-watchdog') === 'true' || container.querySelector('svg[role="img"]')) return;
+
+            container.setAttribute('data-tikz-watchdog', 'true');
+            setTimeout(() => {
+                if (!container.isConnected || container.querySelector('svg[role="img"]')) return;
+                if (container.querySelector('script[type="text/tikz"], svg:not([role="img"])')) {
+                    window.failPendingTikzContainers('TikZ rendering timed out.');
+                }
+            }, 20000);
+        });
+    };
 
     // --- Global PDF Helper ---
     window.pdfReqQueue = [];
@@ -458,7 +486,9 @@
 
         triggerTikzRendering() {
             if (this.contentContainer.querySelector('script[type="text/tikz"]')) {
+                 window.watchPendingTikzContainers(this.contentContainer);
                  window.ensureTikzJaxLoaded().catch(error => {
+                     window.failPendingTikzContainers('TikZ rendering failed.');
                      console.warn('[SnapTeX] Failed to load TikZJax for tooltip content.', error);
                  });
             }
@@ -629,7 +659,9 @@
                 const unrendered = document.querySelector('script[type="text/tikz"]');
                 if (unrendered && !window.tikzJaxFailed) {
                     console.log('[SnapTeX] Loading TikZJax for TikZ content...');
+                    window.watchPendingTikzContainers(document);
                     window.ensureTikzJaxLoaded().catch(error => {
+                        window.failPendingTikzContainers('TikZ rendering failed.');
                         console.warn('[SnapTeX] Failed to load TikZJax for preview content.', error);
                     });
                 }
