@@ -1,7 +1,7 @@
 # SnapTeX Optimization TODO
 
 > Current branch: `dev`  
-> Last verified: `npm test` passed with 45 tests after switching default full updates to block payloads.
+> Last verified: `npm test` passed with 46 tests after adding disabled shell-virtualization plumbing.
 > Rule for future work: keep each change block small, add or update tests before behavior changes, then run `npm test` and commit only the files for that block.
 
 ## Overall Goal
@@ -122,7 +122,7 @@
   - Keep numbering/reference updates on the existing `payload.numbering -> applyNumbering()` path.
 - [x] 3. Release far-offscreen PDF canvas bitmaps and rerender them when they return near the viewport.
 - [x] 4. Start the full-update payload transition with a low-risk block payload path.
-- [ ] 5. Prepare shell-based block virtualization without turning it on globally.
+- [x] 5. Prepare shell-based block virtualization without turning it on globally.
 - [ ] 6. Split or strengthen tests where the current monolithic suite is making changes risky.
 - [ ] 7. Apply low-risk security and architecture cleanup only where tests can pin behavior.
 
@@ -301,6 +301,8 @@
 
 ### I. Shell-Based Webview Virtualization
 
+- [x] Add a disabled `snaptex.experimentalVirtualization` setting and webview controller plumbing.
+- [x] Add a block height cache populated before DOM replacement/removal.
 - [ ] Create `.latex-block-shell` elements for every block.
 - [ ] Mount real block HTML only near the viewport.
 - [ ] Unmount far-offscreen blocks while keeping measured height.

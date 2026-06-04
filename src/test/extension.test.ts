@@ -722,6 +722,23 @@ suite('Webview resource loading', () => {
         assert.doesNotMatch(webviewSource, /outerHTML !==/);
     });
 
+    test('keeps shell virtualization prepared behind a disabled experimental setting', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const packageSource = fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8');
+        const panelSource = fs.readFileSync(path.join(repoRoot, 'src', 'panel.ts'), 'utf8');
+        const webviewSource = fs.readFileSync(path.join(repoRoot, 'media', 'webview.html'), 'utf8');
+
+        assert.match(packageSource, /"snaptex\.experimentalVirtualization"/);
+        assert.match(packageSource, /"default": false/);
+        assert.match(panelSource, /experimentalVirtualization: config\.get<boolean>\('experimentalVirtualization', false\)/);
+        assert.match(webviewSource, /class BlockVirtualizationController/);
+        assert.match(webviewSource, /this\.enabled = false/);
+        assert.match(webviewSource, /this\.heightCache = new Map\(\)/);
+        assert.match(webviewSource, /rememberBlockHeight\(block\)/);
+        assert.match(webviewSource, /this\.virtualization\.setEnabled\(event\.data\.config\.experimentalVirtualization === true\)/);
+        assert.match(webviewSource, /this\.virtualization\.rememberBlockHeight\(oldBlock\)/);
+    });
+
     test('routes TikZ compile failures through the webview error state', () => {
         const repoRoot = path.resolve(__dirname, '..', '..');
         const webviewSource = fs.readFileSync(path.join(repoRoot, 'media', 'webview.html'), 'utf8');
