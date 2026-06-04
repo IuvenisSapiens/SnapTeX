@@ -1050,6 +1050,8 @@ suite('Webview resource loading', () => {
         assert.match(webviewSource, /this\.virtualization\.setEnabled\(event\.data\.config\.experimentalVirtualization === true\)/);
         assert.match(webviewSource, /this\.virtualization\.replaceContentWithShells\(newElements/);
         assert.match(webviewSource, /applyVirtualPatch\(payload\)/);
+        assert.match(webviewSource, /getBlockByIndex\(index\)/);
+        assert.match(webviewSource, /this\.getBlockByIndex\(idx\)/);
         assert.match(webviewSource, /getBlockOrShellByIndex\(index\)/);
         assert.match(webviewSource, /window\.addEventListener\('resize', \(\) => this\.updateVirtualizedBlocks\(\{ allowUnmount: true \}\)\)/);
         assert.match(webviewSource, /this\.virtualization\.rememberBlockHeight\(oldBlock\)/);

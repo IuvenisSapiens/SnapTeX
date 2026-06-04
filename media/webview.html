@@ -1270,11 +1270,19 @@
             );
         }
 
+        getBlockByIndex(index) {
+            return document.querySelector('.latex-block[data-index="' + index + '"]');
+        }
+
+        getShellByIndex(index) {
+            return document.querySelector('.latex-block-shell[data-index="' + index + '"]');
+        }
+
         getBlockOrShellByIndex(index) {
-            let target = document.querySelector('.latex-block[data-index="' + index + '"]');
+            let target = this.getBlockByIndex(index);
             if (target) return target;
 
-            const shell = document.querySelector('.latex-block-shell[data-index="' + index + '"]');
+            const shell = this.getShellByIndex(index);
             if (!shell) return null;
 
             const mounted = this.virtualization.mountShell(shell, missingShell => this.requestVirtualBlockHtml(missingShell));
@@ -1283,10 +1291,6 @@
                 return mounted;
             }
             return shell;
-        }
-
-        getShellByIndex(index) {
-            return document.querySelector('.latex-block-shell[data-index="' + index + '"]');
         }
 
         waitForLayout() {
@@ -1329,7 +1333,7 @@
         }
 
         async ensureBlockMountedByIndex(index) {
-            const target = document.querySelector('.latex-block[data-index="' + index + '"]');
+            const target = this.getBlockByIndex(index);
             if (target) return { target, mounted: false };
 
             const shell = this.getShellByIndex(index);
@@ -1413,7 +1417,7 @@
             }
             if (message.error || !message.html) {
                 const index = pending?.index ?? message.index;
-                const shell = document.querySelector('.latex-block-shell[data-index="' + index + '"]');
+                const shell = this.getShellByIndex(index);
                 if (shell) {
                     shell.removeAttribute('data-html-requested');
                     shell.removeAttribute('data-html-request-id');
@@ -1767,7 +1771,7 @@
             if (payload.dirtyBlocks) {
                 Object.keys(payload.dirtyBlocks).forEach(indexStr => {
                     const idx = parseInt(indexStr);
-                    const targetBlock = document.querySelector('.latex-block[data-index="' + idx + '"]');
+                    const targetBlock = this.getBlockByIndex(idx);
                     if (targetBlock) {
                         const tempDiv = document.createElement('div');
                         tempDiv.innerHTML = payload.dirtyBlocks[idx];
@@ -1816,7 +1820,7 @@
             if (payload.dirtyBlocks) {
                 Object.keys(payload.dirtyBlocks).forEach(indexStr => {
                     const idx = parseInt(indexStr);
-                    const shell = document.querySelector('.latex-block-shell[data-index="' + idx + '"]');
+                    const shell = this.getShellByIndex(idx);
                     if (!shell) return;
 
                     const temp = document.createElement('div');
@@ -1838,7 +1842,7 @@
             const { blocks, labels } = data;
             for (const [idxStr, counts] of Object.entries(blocks)) {
                 const idx = parseInt(idxStr);
-                const blockEl = document.querySelector('.latex-block[data-index="' + idx + '"]');
+                const blockEl = this.getBlockByIndex(idx);
                 if (!blockEl) continue;
                 const fill = (type, values) => {
                     if (!values || !values.length) return;
