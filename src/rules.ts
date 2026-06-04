@@ -735,15 +735,15 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
 
                 let tableHtml = '';
                 // Locate tabular
-                const beginRegex = /\\begin\{tabular(\*?)\}/g;
+                const beginRegex = /\\begin\{(tabular\*?|tabularx)\}/g;
                 const beginMatch = beginRegex.exec(innerContent);
                 let tabularRegion = { start: 0, end: 0 };
 
                 if (beginMatch) {
-                    const isStar = beginMatch[1] === '*';
+                    const envName = beginMatch[1];
                     let contentStartIndex = beginMatch.index + beginMatch[0].length;
                     // ... (Arg parsing logic same as before) ...
-                    const requiredArgs = isStar ? 2 : 1;
+                    const requiredArgs = envName === 'tabular' ? 1 : 2;
                     let argsFound = 0;
                     while (argsFound < requiredArgs) {
                         while (contentStartIndex < innerContent.length && /\s/.test(innerContent[contentStartIndex])) { contentStartIndex++; }
@@ -758,7 +758,8 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                         } else { break; }
                     }
 
-                    const endRegex = /\\end\{tabular\*?\}/g;
+                    const escapedEnvName = envName.replace(/\*/g, '\\*');
+                    const endRegex = new RegExp(`\\\\end\\{${escapedEnvName}\\}`, 'g');
                     endRegex.lastIndex = contentStartIndex;
                     const endMatch = endRegex.exec(innerContent);
 

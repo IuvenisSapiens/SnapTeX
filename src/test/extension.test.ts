@@ -536,6 +536,34 @@ suite('SmartRenderer', () => {
         assert.doesNotMatch(html, /class="latex-block algorithm/);
     });
 
+    test('renders tabularx tables with booktabs and colored captions', () => {
+        const html = renderBlocks([
+            [
+                '\\begin{table}[!ht]',
+                '\\centering',
+                '\\caption{\\textcolor{red}{Summary of loss notation. Here, $\\ell$ denotes individual loss.}}',
+                '\\label{tab:notation_loss}',
+                '\\begin{tabularx}{\\textwidth}{llX}',
+                '\\toprule',
+                '\\textbf{Notation} & \\textbf{Definition} & \\textbf{Description} \\\\',
+                '\\midrule',
+                '$\\ell(\\z_i; \\f)$ & -- & {Individual} loss of model $\\f$ at index $i$. \\\\',
+                '$\\overline{\\ell}_i(\\f)$ & $\\Ebb[\\ell(\\z_i; \\f)]$ & Expected {individual} loss of \\emph{fixed} model $\\f$ at index $i$. \\\\',
+                '\\bottomrule',
+                '\\end{tabularx}',
+                '\\end{table}'
+            ].join('\n')
+        ]);
+
+        assert.match(html, /class="latex-table"/);
+        assert.match(html, /id="tab:notation_loss"/);
+        assert.match(html, /<span style="color: red">Summary of loss notation/);
+        assert.match(html, /<table[^>]*>/);
+        assert.match(html, /<strong>Notation<\/strong>/);
+        assert.match(html, /<td[^>]*>Expected \{individual\} loss of <em>fixed<\/em> model/);
+        assert.doesNotMatch(html, /\\begin\{tabularx\}|\\toprule|\\bottomrule/);
+    });
+
     test('removes standalone comment lines without creating blank preview gaps', () => {
         const html = renderBlocks([
             [
