@@ -413,6 +413,10 @@ suite('LaTeX style utilities', () => {
         assert.equal(labels.cleanContent, 'Figure body  text ');
         assert.match(labels.hiddenHtml, /id="fig:spaced"/);
         assert.match(labels.hiddenHtml, /id="fig:tight"/);
+
+        const unsafe = extractAndHideLabels('Figure body \\label{fig:a&"b}');
+        assert.match(unsafe.hiddenHtml, /id="fig:a&amp;&quot;b"/);
+        assert.match(unsafe.hiddenHtml, /data-label="fig:a&amp;&quot;b"/);
     });
 
     test('cleans common BibTeX LaTeX commands without stripping protected tokens', () => {
@@ -953,7 +957,8 @@ suite('SmartRenderer', () => {
         const doc = createDocument([
             [
                 '\\section{Intro}\\label{sec:intro}',
-                'See \\ref{sec:intro,fig:missing}, Eq.~\\eqref{eq:one}, \\citep[see][p. 2]{smith2024,doe2025}, \\citet{smith2024}, and \\citeyear{doe2025}.'
+                'See \\ref{sec:intro,fig:missing}, Eq.~\\eqref{eq:one}, \\ref{sec:a&b}, \\citep[see][p. 2]{smith2024,doe2025}, \\citet{smith2024}, and \\citeyear{doe2025}.',
+                '\\label{sec:a&b}'
             ].join('\n'),
             '\\begin{equation}\\label{eq:one}x=1\\end{equation}'
         ]);
@@ -968,6 +973,8 @@ suite('SmartRenderer', () => {
         assert.match(html, /href="#sec:intro"[^>]*data-key="sec:intro"[^>]*>\?<\/a>/);
         assert.match(html, /href="#fig:missing"[^>]*data-key="fig:missing"[^>]*>\?<\/a>/);
         assert.match(html, /Eq\.&nbsp;\(<a href="#eq:one"[^>]*data-key="eq:one"[^>]*>\?<\/a>\)/);
+        assert.match(html, /id="sec:a&amp;b"/);
+        assert.match(html, /href="#sec:a&amp;b"[^>]*data-key="sec:a&amp;b"[^>]*>\?<\/a>/);
         assert.match(html, /\(see <a href="#ref-smith2024"[^>]*>Smith, 2024<\/a>; <a href="#ref-doe2025"[^>]*>Doe, 2025<\/a>, p\. 2\)/);
         assert.match(html, /Smith \(<a href="#ref-smith2024"[^>]*>2024<\/a>\)/);
         assert.match(html, /and <a href="#ref-doe2025"[^>]*>2025<\/a>/);
@@ -1175,6 +1182,25 @@ suite('PDF request validation', () => {
         assert.match(webviewSource, /callbacks: requestOptions\.onLoaded \? \[requestOptions\.onLoaded\] : \[\]/);
         assert.match(webviewSource, /pending\.callbacks\.push\(requestOptions\.onLoaded\)/);
         assert.match(webviewSource, /this\.smartFullUpdateFromBlocks\(payload\.htmls, payload\.preserveUnchangedBlocks !== false\)/);
+    });
+
+    test('resets renderer state when switching root documents', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const panelSource = fs.readFileSync(path.join(repoRoot, 'src', 'panel.ts'), 'utf8');
+
+        assert.match(panelSource, /const previousSourceUri = this\._sourceUri/);
+        assert.match(panelSource, /normalizeUri\(previousSourceUri\) !== normalizeUri\(docUri\)/);
+        assert.match(panelSource, /if \(sourceChanged\) \{\s*this\._renderer\.resetState\(\);\s*\}/);
+    });
+
+    test('prunes virtualized block html and height caches to active block keys', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const webviewSource = readWebviewRuntimeSource(repoRoot);
+
+        assert.match(webviewSource, /pruneCaches\(activeKeys\)/);
+        assert.match(webviewSource, /prune\(this\.heightCache\)/);
+        assert.match(webviewSource, /prune\(this\.htmlCache\)/);
+        assert.match(webviewSource, /this\.virtualization\.pruneCachesFromContent\(\)/);
     });
 
     test('releases far-offscreen PDF canvas bitmaps while preserving layout for rerender', () => {
@@ -1457,6 +1483,7 @@ suite('Metadata extraction', () => {
             '\\author{Ada}',
             '\\date{\\today}',
             '\\newcommand{\\vect}[1]{\\mathbf{#1}}',
+            '\\renewcommand{\\oldmacro}{\\mathrm{o}}',
             '\\DeclareMathOperator{\\rank}{rank}',
             '\\usetikzlibrary{arrows.meta}',
             '\\tikzset{box/.style={draw}}',
@@ -1472,11 +1499,13 @@ suite('Metadata extraction', () => {
         assert.equal(result.data.author, 'Ada');
         assert.ok(result.data.date);
         assert.equal(result.data.macros['\\vect'], '\\mathbf{#1}');
+        assert.equal(result.data.macros['\\oldmacro'], '\\mathrm{o}');
         assert.equal(result.data.macros['\\rank'], '\\operatorname{rank}');
         assert.match(result.data.tikzGlobal, /\\usetikzlibrary\{arrows\.meta\}/);
         assert.match(result.data.tikzGlobal, /\\tikzset\{box\/.style=\{draw\}\}/);
         assert.equal(result.data.tikzMacroMap.get('\\origin'), '\\def\\origin{(0,0)}');
         assert.equal(result.data.tikzMacroMap.get('\\vect'), '\\def\\vect#1{\\mathbf{#1}}');
+        assert.equal(result.data.tikzMacroMap.get('\\oldmacro'), '\\def\\oldmacro{\\mathrm{o}}');
         assert.doesNotMatch(result.cleanedText, /\\title/);
         assert.doesNotMatch(result.cleanedText, /\\author/);
         assert.doesNotMatch(result.cleanedText, /\\newcommand\{\\vect\}/);

@@ -1,220 +1,10 @@
-import { toRoman, capitalizeFirstLetter, escapeHtml, extractAndHideLabels, findBalancedClosingBrace, resolveLatexStyles, findCommand } from './utils';
+import { toRoman, capitalizeFirstLetter, createHiddenLabelAnchor, escapeHtml, escapeHtmlAttribute, extractAndHideLabels, resolveLatexStyles } from './utils';
 import { PreprocessRule, RenderContext } from './types';
 import { BibTexParser } from './bib';
 import { REGEX_STR, R_LABEL, R_REF, R_CITATION, R_BIBLIOGRAPHY } from './patterns';
-import katex from 'katex';
-
-/**
- * Helper to render math using KaTeX and protect it.
- */
-function renderMath(tex: string, displayMode: boolean, renderer: RenderContext): string {
-    try {
-        const html = katex.renderToString(tex, {
-            displayMode: displayMode,
-            macros: renderer.currentMacros,
-            throwOnError: false,
-            errorColor: '#cc0000',
-            globalGroup: true,
-            trust: true
-        });
-        return renderer.protect('math', html);
-    } catch (e) {
-        return renderer.protect('math', `<span style="color:red">Math Error</span>`);
-    }
-}
-
-/**
- * Helper to create a protected reference link
- */
-function createRefLink(key: string, renderer: RenderContext, type: 'ref' | 'eqref' = 'ref'): string {
-    const html = `<a href="#${key}" class="sn-ref" data-key="${key}" style="color:inherit; text-decoration:none;">?</a>`;
-    const token = renderer.protect('ref', html);
-    if (type === 'eqref') {
-        return `(\\text{${token}})`;
-    }
-    return `\\text{${token}}`;
-}
-
-/**
- * Scans text for protection tokens (like hidden labels) that might be floating
- * outside the main content (e.g. \label after \caption or \includegraphics).
- */
-function recoverPreservedTokens(text: string): string {
-    // Matches tokens format defined in ProtectionManager: XSNAP:namespace:idY
-    const tokenRegex = /XSNAP:[a-zA-Z0-9_-]+:\d+Y/g;
-    let found = "";
-    let match;
-    while ((match = tokenRegex.exec(text)) !== null) {
-        found += match[0];
-    }
-    return found;
-}
-
-function unwrapResizeboxAroundProtectedContent(text: string): string {
-    return text.replace(
-        /\\resizebox\s*\{[^{}]*\}\s*\{[^{}]*\}\s*\{\s*((?:XSNAP:[a-zA-Z0-9_-]+:\d+Y\s*)+)\}/g,
-        (_match, protectedContent: string) => protectedContent.trim()
-    );
-}
-
-/**
- * Recursive Dependency Resolver
- * Scans the content for macro usages and pulls in their definitions from the map.
- * Handles nested dependencies (e.g. A uses B, B uses C).
- */
-function resolveDependencies(content: string, macroMap: Map<string, string>): string {
-    const usedMacros = new Set<string>();
-    const queue: string[] = [content];
-    const resolvedDefs: string[] = [];
-
-    // Regex to find control sequences like \foo, \bar123
-    const tokenRegex = /\\[a-zA-Z@]+/g;
-
-    while (queue.length > 0) {
-        const text = queue.pop()!;
-        let match;
-        // Reset regex state if reused (though match() doesn't need it, exec() does)
-
-        const tokens = text.match(tokenRegex);
-        if (tokens) {
-            for (const token of tokens) {
-                if (macroMap.has(token) && !usedMacros.has(token)) {
-                    usedMacros.add(token);
-                    const def = macroMap.get(token)!;
-                    resolvedDefs.push(def);
-                    // Add the definition body to queue to scan for nested dependencies
-                    queue.push(def);
-                }
-            }
-        }
-    }
-
-    return resolvedDefs.join('\n');
-}
-
-const TIKZ_LIBRARY_PATTERNS: Record<string, RegExp[]> = {
-    calc: [
-        /\$\s*\([^]*?\)\s*\$/m,
-        /!\s*[-+]?\d*\.?\d+\s*!/,
-        /\bintersection of\b/i
-    ],
-    'shapes.geometric': [
-        /\b(?:shape\s*=\s*)?(?:diamond|ellipse|trapezium|semicircle|regular polygon|star|dart|kite|cylinder|isosceles triangle)\b/i
-    ],
-    positioning: [
-        /\b(?:above|below|left|right|above left|above right|below left|below right|base left|base right)\s*=\s*(?:of\b|[^,\]]*\bof\b)/i,
-        /\bnode distance\b/i
-    ],
-    'decorations.pathreplacing': [
-        /\bdecorate\b/i,
-        /\bdecoration\s*=\s*\{?[^,\]}]*(?:brace|expanding waves|ticks|border|coil|zigzag)/i
-    ],
-    patterns: [
-        /\bpattern\s*=/i,
-        /\bpattern color\s*=/i
-    ],
-    'arrows.meta': [
-        /\b(?:Stealth|Latex|Triangle|Circle|Square|Bar|Bracket|Hooks?|Implies|Computer Modern|Classical TikZ)\b/,
-        /[-<>]\s*\{[^}]*\}/
-    ],
-    backgrounds: [
-        /\bon background layer\b/i,
-        /\\begin\{pgfonlayer\}\{background\}/i,
-        /\bbackground rectangle\b/i,
-        /\bshow background\b/i
-    ],
-    angles: [
-        /\bpic\s*(?:\[[^\]]*\])?\s*\{(?:right\s+)?angle\s*=/i,
-        /\bangle\s*=/i
-    ],
-    fit: [
-        /\bfit\s*=/i
-    ],
-    matrix: [
-        /\\matrix\b/i,
-        /\bmatrix of\b/i
-    ],
-    quotes: [
-        /\b(?:edge|node)\s*\[[^\]]*["']/i
-    ]
-};
-
-function splitTikzLibraries(libraries: string): string[] {
-    return libraries
-        .split(',')
-        .map(library => library.trim())
-        .filter(Boolean);
-}
-
-function extractUsedTikzStyleDefinitions(globalPreamble: string, pictureSource: string): string {
-    const usedDefinitions: string[] = [];
-    const visitedStyles = new Set<string>();
-    const styleRegex = /([A-Za-z@][\w@./:-]*)\s*\/\.style(?:\s+(?:args|n args))?\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
-    const styleDefinitions = new Map<string, string>();
-    let match;
-
-    while ((match = styleRegex.exec(globalPreamble)) !== null) {
-        styleDefinitions.set(match[1], match[2]);
-    }
-
-    const visitStyle = (styleName: string) => {
-        if (visitedStyles.has(styleName)) { return; }
-
-        const definition = styleDefinitions.get(styleName);
-        if (!definition) { return; }
-
-        visitedStyles.add(styleName);
-        usedDefinitions.push(definition);
-
-        for (const nestedStyle of styleDefinitions.keys()) {
-            if (new RegExp(`(^|[^A-Za-z0-9@./:-])${nestedStyle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9@./:-]|$)`).test(definition)) {
-                visitStyle(nestedStyle);
-            }
-        }
-    };
-
-    for (const styleName of styleDefinitions.keys()) {
-        if (new RegExp(`(^|[^A-Za-z0-9@./:-])${styleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9@./:-]|$)`).test(pictureSource)) {
-            visitStyle(styleName);
-        }
-    }
-
-    return usedDefinitions.join('\n');
-}
-
-function shouldIncludeTikzLibrary(library: string, signalText: string): boolean {
-    const patterns = TIKZ_LIBRARY_PATTERNS[library];
-    if (!patterns) { return true; }
-    return patterns.some(pattern => pattern.test(signalText));
-}
-
-function filterTikzGlobalForPicture(globalPreamble: string, pictureSource: string): string {
-    const libraryRegex = /\\usetikzlibrary\s*\{([^{}]*)\}/g;
-    const requestedLibraries: string[] = [];
-    const retainedGlobals: string[] = [];
-    let lastIndex = 0;
-    let match;
-
-    while ((match = libraryRegex.exec(globalPreamble)) !== null) {
-        const before = globalPreamble.substring(lastIndex, match.index).trim();
-        if (before) { retainedGlobals.push(before); }
-        requestedLibraries.push(...splitTikzLibraries(match[1]));
-        lastIndex = libraryRegex.lastIndex;
-    }
-
-    const after = globalPreamble.substring(lastIndex).trim();
-    if (after) { retainedGlobals.push(after); }
-
-    const signalText = `${pictureSource}\n${extractUsedTikzStyleDefinitions(globalPreamble, pictureSource)}`;
-    const selectedLibraries = Array.from(new Set(
-        requestedLibraries.filter(library => shouldIncludeTikzLibrary(library, signalText))
-    ));
-    const selectedLibraryPreamble = selectedLibraries.length > 0
-        ? [`\\usetikzlibrary{${selectedLibraries.join(', ')}}`]
-        : [];
-
-    return [...selectedLibraryPreamble, ...retainedGlobals].join('\n');
-}
+import { createRefLink, renderMath } from './rule-helpers';
+import { createTikzPictureRule } from './rule-tikz';
+import { createAlgorithmRule, createFigureRule, createTableRule } from './rule-floats';
 
 export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
     // Removes the % marker left by metadata.ts without turning long comment blocks into giant blank gaps.
@@ -229,50 +19,7 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
         }
     },
 
-// 5. TikZ Picture (Smart On-Demand Injection)
-    {
-        name: 'tikzpicture',
-        priority: 6,
-        apply: (text, renderer: RenderContext) => {
-            const regex = /\\begin\{tikzpicture\}(?:\[([\s\S]*?)\])?([\s\S]*?)\\end\{tikzpicture\}/g;
-
-            return text.replace(regex, (_match, options, content) => {
-                const { cleanContent, hiddenHtml } = extractAndHideLabels(content);
-                const opts = options ? `[${options}]` : '';
-
-                // 1. Get Always-Include Globals (Libraries, Colors, TikzSets)
-                const globalPreamble = filterTikzGlobalForPicture(
-                    renderer.currentDocument?.metadata.tikzGlobal || "",
-                    `${opts}\n${cleanContent}`
-                );
-
-                // 2. Resolve Macros On-Demand (Tree Shaking)
-                const macroMap = renderer.currentDocument?.metadata.tikzMacroMap || new Map();
-                // Scan both options and content for dependencies
-                const neededMacros = resolveDependencies(opts + cleanContent, macroMap);
-
-                const fontConfig = `\\tikzset{every node/.append style={font=\\sffamily\\small}}\n`;
-
-                // 3. Assemble
-                const fullCode = [
-                    globalPreamble,  // 1. Libraries
-                    neededMacros,    // 2. Only used \\newcommand definitions
-                    fontConfig,      // 3. System font settings
-                    `\\begin{tikzpicture}${opts}`,
-                    cleanContent,
-                    `\\end{tikzpicture}`
-                ].join('\n');
-
-                const html = `<div class="tikz-container">
-                    <script type="text/snaptex-tikz" data-show-console="false">
-                        ${fullCode}
-                    </script>
-                </div>`;
-
-                return renderer.protect('tikz', html) + hiddenHtml;
-            });
-        }
-    },
+    createTikzPictureRule(),
 
     // --- Step 0: Handle escape characters (Highest priority, prevents interference with subsequent regex) ---
     {
@@ -406,16 +153,16 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
         apply: (text, renderer: RenderContext) => {
             // 1. Labels
             text = text.replace(new RegExp(R_LABEL, 'g'), (match, labelName) => {
-                const safeLabel = labelName.replace(/"/g, '&quot;');
                 // Protect raw HTML anchors so they survive inside Figure/Table blocks
-                return renderer.protect('raw', `<span id="${safeLabel}" class="latex-label-anchor" data-label="${safeLabel}" style="position:relative; top:-50px; visibility:hidden;"></span>`);
+                return renderer.protect('raw', createHiddenLabelAnchor(labelName));
             });
 
             // 2. References (Numbering)
             text = text.replace(R_REF, (match, type, labels) => {
                 const labelArray = labels.split(',').map((l: string) => l.trim());
                 const htmlLinks = labelArray.map((label: string) => {
-                    return `<a href="#${label}" class="latex-link latex-ref sn-ref" data-key="${label}">?</a>`;
+                    const safeLabel = escapeHtmlAttribute(label);
+                    return `<a href="#${safeLabel}" class="latex-link latex-ref sn-ref" data-key="${safeLabel}">?</a>`;
                 });
                 const joinedLinks = htmlLinks.join(', ');
                 const result = (type === 'eqref') ? `(${joinedLinks})` : joinedLinks;
@@ -446,8 +193,10 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                     return { error: false, key, author, year };
                 });
 
-                const mkLink = (text: string, key: string) =>
-                    `<a href="#ref-${key}" class="latex-cite-link" style="color:#2e7d32; text-decoration:none;">${text}</a>`;
+                const mkLink = (text: string, key: string) => {
+                    const safeKey = escapeHtmlAttribute(key);
+                    return `<a href="#ref-${safeKey}" class="latex-cite-link" style="color:#2e7d32; text-decoration:none;">${text}</a>`;
+                };
 
                 let finalHtml = "";
                 if (cmd === 'citet') {
@@ -508,8 +257,9 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                     const entry = renderer.bibEntries.get(key);
                     const content = entry
                         ? BibTexParser.formatEntry(entry, renderer)
-                        : `<span style="color:red">Bib entry '${key}' not found.</span>`;
-                    html += `<div class="bib-item" id="ref-${key}" style="margin-bottom: 0.8em; padding-left: 2em; text-indent: -2em;">${content}</div>`;
+                        : `<span style="color:red">Bib entry '${escapeHtml(key)}' not found.</span>`;
+                    const safeKey = escapeHtmlAttribute(key);
+                    html += `<div class="bib-item" id="ref-${safeKey}" style="margin-bottom: 0.8em; padding-left: 2em; text-indent: -2em;">${content}</div>`;
                 });
                 html += `</div>`;
                 return renderer.protect('bib', html);
@@ -556,238 +306,9 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
         }
     },
 
-    // --- Figure (Structure Extraction + Label Recovery) ---
-    {
-        name: 'figure',
-        priority: 120,
-        apply: (text: string, renderer: RenderContext) => {
-            return text.replace(/\\begin\{figure(\*?)\}(?:\[.*?\])?([\s\S]*?)\\end\{figure\1\}/gi, (match, star, content) => {
-                // 1. Extract Caption
-                const captionRes = findCommand(content, 'caption');
-                let captionHtml = '';
-                let body = content;
-
-                if (captionRes) {
-                    let captionText = captionRes.content;
-                    captionText = captionText.replace(/\$((?:\\.|[^\\$])+?)\$/g, (m: string, c: string) => renderMath(c.trim(), false, renderer));
-                    captionText = resolveLatexStyles(captionText);
-
-                    captionHtml = `<div class="figure-caption"><strong>Figure <span class="sn-cnt" data-type="fig"></span>:</strong> ${renderer.renderInline(captionText)}</div>`;
-
-                    // Remove caption from body to avoid duplication
-                    body = body.substring(0, captionRes.start) + body.substring(captionRes.end + 1);
-                }
-
-                // 2. Handle Labels (Extract labels defined in the figure environment)
-                // Replaced 'recoverPreservedTokens' with standard 'extractAndHideLabels'
-                const { cleanContent, hiddenHtml } = extractAndHideLabels(body);
-                body = cleanContent;
-
-                // 3. Cleanup
-                body = body.trim().replace(/\\centering/g, '');
-                body = unwrapResizeboxAroundProtectedContent(body);
-
-                // In-place replacement for images to support PNG/JPG/PDF and multiple images
-                // Regex allows spaces (\s*) and uses global flag (g)
-                body = body.replace(/\\includegraphics(?:\[.*?\])?\s*\{([^}]+)\}/g, (m: String, imgPath: String) => {
-                    const cleanPath = imgPath.trim();
-                    const canvasId = `pdf-${Math.random().toString(36).substr(2, 9)}`;
-
-                    if (cleanPath.toLowerCase().endsWith('.pdf')) {
-                        return `<canvas id="${canvasId}" data-req-path="${cleanPath}" style="width:100%; max-width:100%; display:block; margin:0 auto;"></canvas>`;
-                    } else {
-                        // Use LOCAL_IMG prefix, which panel.ts will convert to vscode-webview-resource URI
-                        return `<img src="LOCAL_IMG:${cleanPath}" style="max-width:100%; display:block; margin:0 auto;">`;
-                    }
-                });
-
-                // 5. Wrap and Protect
-                // We wrap the body (which may contain XSNAP tokens from TikZ or img tags) and caption
-                // into a container, and protect the WHOLE thing.
-                const finalHtml = `<div class="latex-figure" style="text-align: center; margin: 1em 0;">${body}${captionHtml}${hiddenHtml}</div>`;
-
-                return `\n\n` + renderer.protect('fig', finalHtml) + `\n\n`;
-            });
-        }
-    },
-
-    // --- Step 4: Algorithm (Structure Extraction + Label Recovery) ---
-    {
-        name: 'algorithm',
-        priority: 130,
-        apply: (text: string, renderer: RenderContext) => {
-            return text.replace(/\\begin\{algorithm(\*?)\}(?:\[.*?\])?([\s\S]*?)\\end\{algorithm\1\}/gi, (match, star, content) => {
-                const captionRes = findCommand(content, 'caption');
-                let captionHtml = '';
-                if (captionRes) {
-                    let captionText = captionRes.content;
-                    captionText = captionText.replace(/\$((?:\\.|[^\\$])+?)\$/g, (m: string, c: string) => renderMath(c.trim(), false, renderer));
-                    captionText = resolveLatexStyles(captionText);
-                    captionHtml = `<div class="alg-caption"><strong>Algorithm <span class="sn-cnt" data-type="alg"></span>:</strong> ${renderer.renderInline(captionText)}</div>`;
-                    content = content.substring(0, captionRes.start) + content.substring(captionRes.end + 1);
-                }
-
-                const algRegex = /\\begin\{algorithmic\}(?:\[(.*?)\])?([\s\S]*?)\\end\{algorithmic\}/g;
-                let bodyHtml = '';
-                let matchAlg;
-                // We keep track of where matches were found to extract labels from the *rest* of the content later
-                let processedRegions: {start: number, end: number}[] = [];
-
-                while ((matchAlg = algRegex.exec(content)) !== null) {
-                    processedRegions.push({start: matchAlg.index, end: matchAlg.index + matchAlg[0].length});
-                    const params = matchAlg[1] || '';
-                    const rawBody = matchAlg[2];
-                    const showNumbers = params.includes('1');
-                    const listTag = showNumbers ? 'ol' : 'ul';
-                    const lines = rawBody.split('\n');
-                    let listItems = '';
-
-                    lines.forEach(line => {
-                        let trimmed = line.trim();
-                        if (!trimmed || trimmed.startsWith('%') || trimmed.startsWith('\\renewcommand') || trimmed.startsWith('\\setlength')) { return; }
-
-                        let prefixHtml = "";
-                        let contentToRender = trimmed;
-                        let isSpecialLine = false;
-                        if (trimmed.match(/^\\(Require|Ensure|Input|Output)/)) {
-                            const isInput = trimmed.match(/^\\(Require|Input)/);
-                            const label = isInput ? 'Input:' : 'Output:';
-                            prefixHtml = `<strong>${label}</strong> `;
-                            contentToRender = trimmed.replace(/^\\(Require|Ensure|Input|Output)\s*/, '');
-                            isSpecialLine = true;
-                        } else if (trimmed.match(/^\\State/)) {
-                            contentToRender = trimmed.replace(/^\\State\s*/, '');
-                            if (contentToRender.startsWith('{') && contentToRender.endsWith('}')) { contentToRender = contentToRender.substring(1, contentToRender.length - 1); }
-                        }
-
-                        contentToRender = resolveLatexStyles(contentToRender);
-                        const renderedContent = renderer.renderInline(contentToRender);
-                        const itemClass = isSpecialLine ? "alg-item alg-item-no-marker" : "alg-item";
-                        listItems += `<li class="${itemClass}">${prefixHtml}${renderedContent}</li>`;
-                    });
-
-                    bodyHtml += `<${listTag} class="alg-list">${listItems}</${listTag}>`;
-                }
-
-                // 3. [FIX] Recover labels that were OUTSIDE the algorithmic block (e.g. \label after \end{algorithmic})
-                // We construct a string of "ignored" content
-                let ignoredContent = "";
-                let lastIdx = 0;
-                processedRegions.forEach(reg => {
-                    ignoredContent += content.substring(lastIdx, reg.start);
-                    lastIdx = reg.end;
-                });
-                ignoredContent += content.substring(lastIdx);
-
-                const hiddenLabels = recoverPreservedTokens(ignoredContent);
-
-                return `\n\n` + renderer.protect('alg', `<div class="latex-algorithm">${captionHtml}${bodyHtml}${hiddenLabels}<div class="alg-bottom-rule"></div></div>`) + `\n\n`;
-            });
-        }
-    },
-
-    // --- Step 5: Table (Structure Extraction + Label Recovery) ---
-    {
-        name: 'table',
-        priority: 140,
-        apply: (text: string, renderer: RenderContext) => {
-            return text.replace(/\\begin\{table(\*?)\}(?:\[.*?\])?([\s\S]*?)\\end\{table\1\}/gi, (match, star, content) => {
-                const captionRes = findCommand(content, 'caption');
-                let captionHtml = '';
-
-                if (captionRes) {
-                    let captionText = captionRes.content;
-                    captionText = captionText.replace(/\$((?:\\.|[^\\$])+?)\$/g, (m: string, c: string) => renderMath(c.trim(), false, renderer));
-                    captionText = resolveLatexStyles(captionText);
-                    captionHtml = `<div class="table-caption"><strong>Table <span class="sn-cnt" data-type="tbl"></span>:</strong> ${renderer.renderInline(captionText)}</div>`;
-                    content = content.substring(0, captionRes.start) + content.substring(captionRes.end + 1);
-                }
-
-                let innerContent = content.replace(/\\begin\{threeparttable\}/g, '').replace(/\\end\{threeparttable\}/g, '');
-                let notesHtml = '';
-                const notesMatch = innerContent.match(/\\begin\{tablenotes\}(?:\[.*?\])?([\s\S]*?)\\end\{tablenotes\}/);
-
-                if (notesMatch) {
-                    let notesBody = notesMatch[1].replace(/\\(footnotesize|small|scriptsize|tiny)/g, '');
-                    innerContent = innerContent.replace(notesMatch[0], '');
-                    const noteItems = notesBody.split('\\item').slice(1).map((item: string) => {
-                        let itemText = item;
-                        let labelHtml = '';
-                        const lblMatch = item.match(/^\s*\[(.*?)\]/);
-                        if (lblMatch) {
-                            labelHtml = `<strong>${renderer.renderInline(lblMatch[1])}</strong> `;
-                            itemText = item.substring(lblMatch[0].length);
-                        }
-                        itemText = itemText.replace(/\$((?:\\.|[^\\$])+?)\$/g, (m: string, c: string) => renderMath(c.trim(), false, renderer));
-                        return `<li class="note-item" style="list-style:none">${labelHtml}${renderer.renderInline(itemText.trim())}</li>`;
-                    }).join('');
-                    notesHtml = `<div class="latex-tablenotes"><ul>${noteItems}</ul></div>`;
-                }
-
-                let tableHtml = '';
-                // Locate tabular
-                const beginRegex = /\\begin\{(tabular\*?|tabularx)\}/g;
-                const beginMatch = beginRegex.exec(innerContent);
-                let tabularRegion = { start: 0, end: 0 };
-
-                if (beginMatch) {
-                    const envName = beginMatch[1];
-                    let contentStartIndex = beginMatch.index + beginMatch[0].length;
-                    const requiredArgs = envName === 'tabular' ? 1 : 2;
-                    let argsFound = 0;
-                    while (argsFound < requiredArgs) {
-                        while (contentStartIndex < innerContent.length && /\s/.test(innerContent[contentStartIndex])) { contentStartIndex++; }
-                        if (contentStartIndex >= innerContent.length) { break; }
-                        if (innerContent[contentStartIndex] === '[') {
-                            const closeBracket = innerContent.indexOf(']', contentStartIndex);
-                            if (closeBracket !== -1) { contentStartIndex = closeBracket + 1; continue; }
-                        }
-                        if (innerContent[contentStartIndex] === '{') {
-                            const closeBrace = findBalancedClosingBrace(innerContent, contentStartIndex);
-                            if (closeBrace !== -1) { contentStartIndex = closeBrace + 1; argsFound++; } else { break; }
-                        } else { break; }
-                    }
-
-                    const escapedEnvName = envName.replace(/\*/g, '\\*');
-                    const endRegex = new RegExp(`\\\\end\\{${escapedEnvName}\\}`, 'g');
-                    endRegex.lastIndex = contentStartIndex;
-                    const endMatch = endRegex.exec(innerContent);
-
-                    if (endMatch) {
-                        tabularRegion = { start: beginMatch.index, end: endMatch.index + endMatch[0].length };
-                        let rawContent = innerContent.substring(contentStartIndex, endMatch.index);
-
-                        // Clean raw tabular commands
-                        rawContent = rawContent.replace(/\$((?:\\.|[^\\$])+?)\$/g, (m: string, c: string) => renderMath(c.trim(), false, renderer));
-                        rawContent = rawContent.replace(/\\(toprule|midrule|bottomrule|hline|centering|raggedright|raggedleft)/g, '');
-                        rawContent = rawContent.replace(/\\cmidrule(?:\[.*?\])?(?:\(.*?\))?\{[^}]+\}/g, '');
-                        rawContent = rawContent.replace(/\\cline\{[^}]+\}/g, '');
-                        rawContent = rawContent.replace(/\\vspace\*?\{[^}]+\}/g, '');
-                        rawContent = rawContent.replace(/\\setlength\\[a-zA-Z]+\{[^}]+\}/g, '');
-
-                        // Simple row/cell parsing
-                        const rows = rawContent.split(/\\\\(?:\[.*?\])?/).filter((r: string) => r.trim().length > 0).map((rowText: string) => {
-                            const cells = rowText.split('&').map((c: string) => {
-                                let cellContent = c.trim();
-                                const cellAttrs = 'style="padding: 5px 10px; border: 1px solid #ddd;"';
-                                cellContent = resolveLatexStyles(cellContent);
-                                return `<td ${cellAttrs}>${renderer.renderInline(cellContent)}</td>`;
-                            });
-                            return `<tr>${cells.join('')}</tr>`;
-                        }).join('');
-
-                        tableHtml = `<table style="border-collapse: collapse; margin: 0 auto; width: 100%;">${rows}</table>`;
-                    }
-                }
-
-                // 3. [FIX] Recover labels from text OUTSIDE the tabular
-                let ignoredContent = innerContent.substring(0, tabularRegion.start) + innerContent.substring(tabularRegion.end);
-                const hiddenLabels = recoverPreservedTokens(ignoredContent);
-
-                return `\n\n` + renderer.protect('tbl', `<div class="latex-table">${captionHtml}<div class="table-body">${tableHtml}</div>${notesHtml}${hiddenLabels}</div>`) + `\n\n`;
-            });
-        }
-    },
+    createFigureRule(),
+    createAlgorithmRule(),
+    createTableRule(),
 
     // --- Step 7: Theorem and proof environments ---
     {
@@ -908,7 +429,7 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                 let anchor = "";
                 if (label) {
                     const labelName = label.match(/\{([^}]+)\}/)?.[1] || "";
-                    anchor = `<span id="${labelName}" class="latex-label-anchor"></span>`;
+                    anchor = createHiddenLabelAnchor(labelName);
                 }
                 if(anchor) {anchor = renderer.protect('anchor', anchor);}
                 if(numHtml) {numHtml = renderer.protect('secnum', numHtml);}

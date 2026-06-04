@@ -1154,6 +1154,7 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
                     this.replaceBlockPreservingTikz(oldEl, newEl);
                 }
             }
+            this.virtualization.pruneCachesFromContent();
         }
 
         applyPatch(payload) {
@@ -1220,6 +1221,7 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
                     }
                 });
             }
+            this.virtualization.pruneCachesFromContent();
         }
 
         applyVirtualPatch(payload) {
@@ -1273,6 +1275,7 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
             }
 
             this.updateVirtualizedBlocks();
+            this.virtualization.pruneCachesFromContent();
         }
 
         applyNumbering(data) {

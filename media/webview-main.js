@@ -220,6 +220,22 @@ var SnapTeXWebview = (() => {
       this.observeShell(shell);
       return shell;
     }
+    pruneCaches(activeKeys) {
+      const active = new Set(activeKeys.filter(Boolean).map((key) => String(key)));
+      const prune = (cache) => {
+        for (const key of cache.keys()) {
+          if (!active.has(String(key))) {
+            cache.delete(key);
+          }
+        }
+      };
+      prune(this.heightCache);
+      prune(this.htmlCache);
+    }
+    pruneCachesFromContent() {
+      const activeKeys = Array.from(this.contentRoot.children).map((element) => this.getBlockKey(element)).filter(Boolean);
+      this.pruneCaches(activeKeys);
+    }
     getShells() {
       return Array.from(this.contentRoot.querySelectorAll(".latex-block-shell"));
     }
@@ -309,6 +325,7 @@ var SnapTeXWebview = (() => {
     replaceContentWithShells(blocks, onMount) {
       const fragment = document.createDocumentFragment();
       blocks.forEach((block) => fragment.appendChild(this.createShellForBlock(block)));
+      this.pruneCaches(Array.from(fragment.children).map((shell) => this.getBlockKey(shell)));
       this.disconnectShellObservers();
       Array.from(fragment.children).forEach((shell) => this.observeShell(shell));
       this.contentRoot.replaceChildren(fragment);
@@ -317,6 +334,7 @@ var SnapTeXWebview = (() => {
     replaceContentWithBlockMetadata(blocks, onMount, onMissingHtml) {
       const fragment = document.createDocumentFragment();
       blocks.forEach((meta) => fragment.appendChild(this.createShellForMeta(meta)));
+      this.pruneCaches(Array.from(fragment.children).map((shell) => this.getBlockKey(shell)));
       this.disconnectShellObservers();
       Array.from(fragment.children).forEach((shell) => this.observeShell(shell));
       this.contentRoot.replaceChildren(fragment);
@@ -1457,6 +1475,7 @@ var SnapTeXWebview = (() => {
           this.replaceBlockPreservingTikz(oldEl, newEl);
         }
       }
+      this.virtualization.pruneCachesFromContent();
     }
     applyPatch(payload) {
       if (this.virtualization.isEnabled()) {
@@ -1521,6 +1540,7 @@ var SnapTeXWebview = (() => {
           }
         });
       }
+      this.virtualization.pruneCachesFromContent();
     }
     applyVirtualPatch(payload) {
       const { start, deleteCount, htmls = [], shift = 0 } = payload;
@@ -1564,6 +1584,7 @@ var SnapTeXWebview = (() => {
         });
       }
       this.updateVirtualizedBlocks();
+      this.virtualization.pruneCachesFromContent();
     }
     applyNumbering(data) {
       if (!data) return;

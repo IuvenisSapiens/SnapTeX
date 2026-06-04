@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { SmartRenderer } from './renderer';
 import { LatexDocument } from './document';
 import { VscodeFileProvider } from './file-provider';
-import { getBasename } from './utils';
+import { getBasename, normalizeUri } from './utils';
 
 function isDebugMemoryEnabled(): boolean {
     return vscode.workspace.getConfiguration('snaptex').get<boolean>('debugMemory', false);
@@ -362,8 +362,14 @@ export class TexPreviewPanel {
         const filename = getBasename(docUri);
         this._panel.title = `𖧼 ${filename}`;
 
+        const previousSourceUri = this._sourceUri;
+        const sourceChanged = previousSourceUri !== undefined && normalizeUri(previousSourceUri) !== normalizeUri(docUri);
+
         // Update the panel's source of truth to the Root file
         this._sourceUri = docUri;
+        if (sourceChanged) {
+            this._renderer.resetState();
+        }
 
         const docDir = vscode.Uri.joinPath(this._sourceUri, '..');
 
