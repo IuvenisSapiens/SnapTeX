@@ -1,7 +1,7 @@
 # SnapTeX Optimization TODO
 
 > Current branch: `dev`  
-> Last verified: `npm test` passed with 57 tests after visible virtual shell height release.
+> Last verified: `npm test` passed with 57 tests after editor-to-preview auto-scroll smoothing.
 > Rule for future work: keep each change block small, add or update tests before behavior changes, then run `npm test` and commit only the files for that block.
 
 ## Overall Goal
@@ -38,6 +38,7 @@
 - [x] Preserve internal `\ref`/citation jumps by indexing anchors on virtual block shells and mounting the target on demand.
 - [x] Preserve hover tooltip previews by resolving offscreen anchors through the same shell-mount path.
 - [x] Stabilize forward sync by mounting target block HTML and waiting for layout before scrolling.
+- [x] Smooth editor-to-preview auto-scroll by skipping layout waits when the target block is already mounted.
 - [x] Stabilize upward virtual scrolling with direction-aware preloading and delayed far-offscreen cleanup.
 - [x] Keep above-viewport virtual shells height-locked so hydration does not change document height during upward scrolling.
 - [x] Release fixed shell heights for visible mounted blocks so shell estimates do not affect spacing between rendered blocks.

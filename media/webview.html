@@ -1330,13 +1330,13 @@
 
         async ensureBlockMountedByIndex(index) {
             const target = document.querySelector('.latex-block[data-index="' + index + '"]');
-            if (target) return target;
+            if (target) return { target, mounted: false };
 
             const shell = this.getShellByIndex(index);
-            if (!shell) return null;
+            if (!shell) return { target: null, mounted: false };
 
             const block = await this.ensureShellMounted(shell, { forceHeightUpdate: true });
-            return block || shell;
+            return { target: block || shell, mounted: Boolean(block) };
         }
 
         async ensureAnchorMounted(anchorId) {
@@ -1619,10 +1619,13 @@
             this.lastTargetIndex = index;
             this.lastTargetRatio = ratio || 0;
 
-            const target = await this.ensureBlockMountedByIndex(index);
+            const mountResult = await this.ensureBlockMountedByIndex(index);
             if (scrollSeq !== this.scrollCommandSeq) return;
-            await this.waitForLayout();
-            if (scrollSeq !== this.scrollCommandSeq) return;
+            const target = mountResult.target;
+            if (!auto || mountResult.mounted) {
+                await this.waitForLayout();
+                if (scrollSeq !== this.scrollCommandSeq) return;
+            }
 
             if (target) {
                 const calcY = () => {
@@ -1638,7 +1641,8 @@
                 };
                 const targetY = calcY();
                 const currentY = window.scrollY;
-                if (Math.abs(currentY - targetY) < 50 && auto) { return; }
+                const autoSkipThreshold = 12;
+                if (Math.abs(currentY - targetY) < autoSkipThreshold && auto) { return; }
                 const lockTime = auto ? 600 : 1000;
                 this.lockScrolling(lockTime);
                 window.scrollTo({ top: targetY, behavior: 'auto' });

@@ -1078,11 +1078,14 @@ suite('Webview resource loading', () => {
         assert.match(extensionSource, /clearPendingAutoSync\(\);\s*if \(editor\) \{ triggerSyncToPreview/);
         assert.match(webviewSource, /this\.scrollCommandSeq = 0/);
         assert.match(webviewSource, /async ensureBlockMountedByIndex\(index\)/);
+        assert.match(webviewSource, /if \(target\) return \{ target, mounted: false \}/);
         assert.match(webviewSource, /const block = await this\.ensureShellMounted\(shell, \{ forceHeightUpdate: true \}\)/);
+        assert.match(webviewSource, /return \{ target: block \|\| shell, mounted: Boolean\(block\) \}/);
         assert.match(webviewSource, /async executeScroll\(data\)/);
         assert.match(webviewSource, /const scrollSeq = \+\+this\.scrollCommandSeq/);
-        assert.match(webviewSource, /const target = await this\.ensureBlockMountedByIndex\(index\)/);
-        assert.match(webviewSource, /await this\.waitForLayout\(\)/);
+        assert.match(webviewSource, /const mountResult = await this\.ensureBlockMountedByIndex\(index\)/);
+        assert.match(webviewSource, /if \(!auto \|\| mountResult\.mounted\) \{\s*await this\.waitForLayout\(\)/);
+        assert.match(webviewSource, /const autoSkipThreshold = 12/);
         assert.match(webviewSource, /this\.requestVirtualizedUpdate\(\{ allowUnmount: false \}\)/);
         assert.match(webviewSource, /this\.scheduleVirtualizedCleanup\(\)/);
         assert.match(webviewSource, /this\.scrollDirection = delta < 0 \? 'up' : 'down'/);
