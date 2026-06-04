@@ -4,13 +4,14 @@ import { extractMetadata } from './metadata';
 import { BibTexParser, BibEntry } from './bib';
 import { SourceLocation, PreambleData, MetadataResult } from './types';
 import { R_BIBLIOGRAPHY } from './patterns';
-import { LatexBlockSplitter } from './splitter';
-import { normalizeUri } from './utils';
+import { BlockSpan, LatexBlockSplitter } from './splitter';
+import { normalizeUri, stableHash } from './utils';
 
 export interface DocumentParseResult {
-    blockTexts: string[];
-    blockLines: number[];
-    blockLineCounts: number[];
+    bodyText: string;
+    blockSpans: BlockSpan[];
+    blockHashes: string[];
+    metadataSensitiveBlocks: boolean[];
     // memory-efficient TypedArrays
     filePool: string[];
     sourceFileIndices: Uint16Array;
@@ -18,6 +19,11 @@ export interface DocumentParseResult {
     metadata: PreambleData;
     bibEntries: Map<string, BibEntry>;
     contentStartLineOffset: number;
+}
+
+export interface BlockTextSnapshot {
+    bodyText: string;
+    blockSpans: BlockSpan[];
 }
 
 // Cache Entry Interface
@@ -32,9 +38,10 @@ interface IndexedLine {
 }
 
 export class LatexDocument {
-    public blockTexts: string[] = [];
-    public blockLines: number[] = [];
-    public blockLineCounts: number[] = [];
+    private bodyText: string = "";
+    public blockSpans: BlockSpan[] = [];
+    public blockHashes: string[] = [];
+    public metadataSensitiveBlocks: boolean[] = [];
 
     public filePool: string[] = [];
     public sourceFileIndices: Uint16Array = new Uint16Array(0);
@@ -56,13 +63,42 @@ export class LatexDocument {
     constructor(private fileProvider: IFileProvider) {}
 
     public releaseTextContent() {
-        this.blockTexts = [];
+        this.bodyText = "";
+        this.blockSpans = [];
+        this.blockHashes = [];
+        this.metadataSensitiveBlocks = [];
+    }
+
+    public getBlockCount(): number {
+        return this.blockSpans.length;
+    }
+
+    public getBlockText(index: number): string | undefined {
+        const span = this.blockSpans[index];
+        if (!span) { return undefined; }
+        return this.bodyText.slice(span.start, span.end);
+    }
+
+    public getBlockHash(index: number): string | undefined {
+        return this.blockHashes[index];
+    }
+
+    public isMetadataSensitiveBlock(index: number): boolean {
+        return this.metadataSensitiveBlocks[index] === true;
+    }
+
+    public createTextSnapshot(): BlockTextSnapshot {
+        return {
+            bodyText: this.bodyText,
+            blockSpans: [...this.blockSpans]
+        };
     }
 
     public applyResult(result: DocumentParseResult) {
-        this.blockTexts = result.blockTexts;
-        this.blockLines = result.blockLines;
-        this.blockLineCounts = result.blockLineCounts;
+        this.bodyText = result.bodyText;
+        this.blockSpans = result.blockSpans;
+        this.blockHashes = result.blockHashes;
+        this.metadataSensitiveBlocks = result.metadataSensitiveBlocks;
 
         // Apply optimized arrays
         this.filePool = result.filePool;
@@ -117,9 +153,10 @@ export class LatexDocument {
         const rawBlockObjects = LatexBlockSplitter.split(bodyText);
 
         const res: DocumentParseResult = {
-            blockTexts: [],
-            blockLines: [],
-            blockLineCounts: [],
+            bodyText,
+            blockSpans: [],
+            blockHashes: [],
+            metadataSensitiveBlocks: [],
             // TypedArray to seal memory
             filePool: filePool,
             sourceFileIndices: new Uint16Array(fileIndices),
@@ -130,11 +167,11 @@ export class LatexDocument {
         };
 
         for (const b of rawBlockObjects) {
-            if (this.hasRenderableContent(b.text)) {
-                const flattenedText = (' ' + b.text).slice(1);
-                res.blockTexts.push(flattenedText);
-                res.blockLines.push(b.line);
-                res.blockLineCounts.push(b.lineCount);
+            const blockText = bodyText.slice(b.start, b.end);
+            if (this.hasRenderableContent(blockText)) {
+                res.blockSpans.push(b);
+                res.blockHashes.push(stableHash(blockText));
+                res.metadataSensitiveBlocks.push(blockText.trim().includes('\\maketitle'));
             }
         }
 

@@ -5,15 +5,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BibTexParser } from '../bib';
-import { LatexDocument } from '../document';
+import { DocumentParseResult, LatexDocument } from '../document';
 import { DiffEngine } from '../diff';
 import { IFileProvider } from '../file-provider';
 import { extractMetadata } from '../metadata';
 import { isUriWithinAllowedRoots, normalizePdfRequestPath } from '../panel';
 import { ProtectionManager } from '../protection';
 import { postProcessHtml } from '../rules';
-import { LatexCounterScanner } from '../scanner';
-import { LatexBlockSplitter } from '../splitter';
+import { BlockTextProvider, LatexCounterScanner } from '../scanner';
+import { BlockSpan, LatexBlockSplitter } from '../splitter';
 import { SmartRenderer } from '../renderer';
 import { cleanLatexCommands, extractAndHideLabels, findCommand, normalizeUri, resolveLatexStyles, stableHash } from '../utils';
 
@@ -60,19 +60,47 @@ function createDocument(
     } = {}
 ): LatexDocument {
     const doc = new LatexDocument(new MemoryFileProvider());
-    doc.blockTexts = blockTexts;
-    doc.blockLines = blockTexts.map((_, index) => index * 3);
-    doc.blockLineCounts = blockTexts.map(text => text.split(/\r?\n/).length);
-    doc.metadata = {
-        macros: options.macros ?? {},
-        tikzGlobal: options.tikzGlobal ?? '',
-        tikzMacroMap: new Map(),
-        title: options.title,
-        author: options.author,
-        date: options.date
-    };
-    doc.bibEntries = new Map();
-    doc.contentStartLineOffset = 0;
+    let bodyText = "";
+    let offset = 0;
+    let line = 0;
+    const blockSpans: BlockSpan[] = [];
+
+    for (let index = 0; index < blockTexts.length; index++) {
+        if (index > 0) {
+            bodyText += '\n\n';
+            offset += 2;
+            line += 2;
+        }
+
+        const text = blockTexts[index];
+        const start = offset;
+        const end = start + text.length;
+        const lineCount = text.split(/\r?\n/).length;
+        bodyText += text;
+        blockSpans.push({ start, end, line, lineCount });
+        offset = end;
+        line += lineCount;
+    }
+
+    doc.applyResult({
+        bodyText,
+        blockSpans,
+        blockHashes: blockTexts.map(text => stableHash(text)),
+        metadataSensitiveBlocks: blockTexts.map(text => text.trim().includes('\\maketitle')),
+        filePool: [],
+        sourceFileIndices: new Uint16Array(0),
+        sourceLines: new Int32Array(0),
+        metadata: {
+            macros: options.macros ?? {},
+            tikzGlobal: options.tikzGlobal ?? '',
+            tikzMacroMap: new Map(),
+            title: options.title,
+            author: options.author,
+            date: options.date
+        },
+        bibEntries: new Map(),
+        contentStartLineOffset: 0
+    });
     return doc;
 }
 
@@ -87,6 +115,29 @@ function renderBlocks(blockTexts: string[]): string {
 
 function readFixture(name: string): string {
     return fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'test', 'fixtures', name), 'utf8');
+}
+
+function spanText(text: string, span: BlockSpan): string {
+    return text.slice(span.start, span.end);
+}
+
+function resultBlockTexts(result: DocumentParseResult): string[] {
+    return result.blockSpans.map(span => spanText(result.bodyText, span));
+}
+
+function createBlockTextProvider(blocks: string[], reads?: number[]): BlockTextProvider {
+    return {
+        getBlockCount: () => blocks.length,
+        getBlockText: (index: number) => {
+            reads?.push(index);
+            return blocks[index];
+        },
+        getBlockHash: (index: number) => blocks[index] === undefined ? undefined : stableHash(blocks[index])
+    };
+}
+
+function scanBlocks(blocks: string[], scanner = new LatexCounterScanner()) {
+    return scanner.scan(createBlockTextProvider(blocks));
 }
 
 function readWebviewRuntimeSource(repoRoot: string): string {
@@ -104,33 +155,50 @@ function readWebviewRuntimeSource(repoRoot: string): string {
 
 suite('DiffEngine', () => {
     test('computes unchanged, insert, delete, and replace spans', () => {
-        assert.deepStrictEqual(DiffEngine.compute(['a', 'b'], ['a', 'b']), {
+        const h = (...hashes: string[]) => hashes.map((hash, index) => ({ hash, payload: `payload-${index}` }));
+
+        assert.deepStrictEqual(DiffEngine.compute(h('a', 'b'), h('a', 'b')), {
             start: 2,
             deleteCount: 0,
             end: 0,
             insertCount: 0
         });
 
-        assert.deepStrictEqual(DiffEngine.compute(['a', 'c'], ['a', 'b', 'c']), {
+        assert.deepStrictEqual(DiffEngine.compute(h('a', 'c'), h('a', 'b', 'c')), {
             start: 1,
             deleteCount: 0,
             end: 1,
             insertCount: 1
         });
 
-        assert.deepStrictEqual(DiffEngine.compute(['a', 'b', 'c'], ['a', 'c']), {
+        assert.deepStrictEqual(DiffEngine.compute(h('a', 'b', 'c'), h('a', 'c')), {
             start: 1,
             deleteCount: 1,
             end: 1,
             insertCount: 0
         });
 
-        assert.deepStrictEqual(DiffEngine.compute(['a', 'old', 'c'], ['a', 'new', 'c']), {
+        assert.deepStrictEqual(DiffEngine.compute(h('a', 'old', 'c'), h('a', 'new', 'c')), {
             start: 1,
             deleteCount: 1,
             end: 1,
             insertCount: 1
         });
+    });
+
+    test('compares hashes instead of raw payload fields', () => {
+        const oldBlocks = [{ hash: 'same', text: 'old text' }];
+        const newBlocks = [{ hash: 'same', text: 'new text' }];
+
+        assert.deepStrictEqual(
+            DiffEngine.compute(oldBlocks, newBlocks),
+            {
+                start: 1,
+                deleteCount: 0,
+                end: 0,
+                insertCount: 0
+            }
+        );
     });
 });
 
@@ -145,11 +213,12 @@ suite('LatexBlockSplitter', () => {
         ].join('\n');
 
         const blocks = LatexBlockSplitter.split(text);
+        const block = spanText(text, blocks[0]);
 
         assert.equal(blocks.length, 1);
-        assert.match(blocks[0].text, /\\begin\{tikzpicture\}/);
-        assert.match(blocks[0].text, /\\node \{A\};/);
-        assert.match(blocks[0].text, /\\end\{tikzpicture\}/);
+        assert.match(block, /\\begin\{tikzpicture\}/);
+        assert.match(block, /\\node \{A\};/);
+        assert.match(block, /\\end\{tikzpicture\}/);
     });
 
     test('splits before major environments but keeps starred floats intact', () => {
@@ -166,13 +235,14 @@ suite('LatexBlockSplitter', () => {
         ].join('\n');
 
         const blocks = LatexBlockSplitter.split(text);
+        const texts = blocks.map(block => spanText(text, block));
 
         assert.equal(blocks.length, 3);
-        assert.equal(blocks[0].text.trim(), 'Before figure.');
-        assert.match(blocks[1].text, /\\begin\{figure\*\}/);
-        assert.match(blocks[1].text, /\\includegraphics\{wide\.pdf\}/);
-        assert.match(blocks[1].text, /\\end\{figure\*\}/);
-        assert.equal(blocks[2].text.trim(), 'After figure.');
+        assert.equal(texts[0].trim(), 'Before figure.');
+        assert.match(texts[1], /\\begin\{figure\*\}/);
+        assert.match(texts[1], /\\includegraphics\{wide\.pdf\}/);
+        assert.match(texts[1], /\\end\{figure\*\}/);
+        assert.equal(texts[2].trim(), 'After figure.');
     });
 
     test('does not emergency-split long closed TikZ figures with internal blank lines', () => {
@@ -198,14 +268,15 @@ suite('LatexBlockSplitter', () => {
         ].join('\n');
 
         const blocks = LatexBlockSplitter.split(text);
-        const tikzBlocks = blocks.filter(block => /tikzpicture/.test(block.text));
+        const texts = blocks.map(block => spanText(text, block));
+        const tikzBlocks = texts.filter(block => /tikzpicture/.test(block));
 
         assert.equal(tikzBlocks.length, 1);
-        assert.match(tikzBlocks[0].text, /\\begin\{figure\}/);
-        assert.match(tikzBlocks[0].text, /\\begin\{tikzpicture\}/);
-        assert.match(tikzBlocks[0].text, /\\end\{tikzpicture\}/);
-        assert.match(tikzBlocks[0].text, /\\end\{figure\}/);
-        assert.match(blocks.map(block => block.text).join('\n'), /After\./);
+        assert.match(tikzBlocks[0], /\\begin\{figure\}/);
+        assert.match(tikzBlocks[0], /\\begin\{tikzpicture\}/);
+        assert.match(tikzBlocks[0], /\\end\{tikzpicture\}/);
+        assert.match(tikzBlocks[0], /\\end\{figure\}/);
+        assert.match(texts.join('\n'), /After\./);
     });
 });
 
@@ -218,7 +289,7 @@ suite('LatexCounterScanner', () => {
             '\\begin{algorithm*}\\caption{Alg}\\label{alg:a}\\end{algorithm*}'
         ];
 
-        const result = new LatexCounterScanner().scan(blocks);
+        const result = scanBlocks(blocks);
 
         assert.deepStrictEqual(result.blockNumbering[0].counts.fig, ['1']);
         assert.deepStrictEqual(result.blockNumbering[1].counts.fig, ['2']);
@@ -238,7 +309,7 @@ suite('LatexCounterScanner', () => {
             '\\begin{equation*}y=1\\label{eq:y}\\end{equation*}'
         ];
 
-        const result = new LatexCounterScanner().scan(blocks);
+        const result = scanBlocks(blocks);
 
         assert.deepStrictEqual(result.blockNumbering[0].counts.sec, ['1']);
         assert.deepStrictEqual(result.blockNumbering[1].counts.sec, ['1.1']);
@@ -247,6 +318,45 @@ suite('LatexCounterScanner', () => {
         assert.equal(result.labelMap['sec:intro'], '1');
         assert.equal(result.labelMap['eq:x'], '1');
         assert.equal(result.labelMap['eq:y'], undefined);
+    });
+
+    test('uses explicit equation tags as lightweight display numbers', () => {
+        const result = scanBlocks([
+            '\\begin{equation}x=1\\tag{A}\\label{eq:tagged}\\end{equation}',
+            '\\begin{equation}y=1\\label{eq:next}\\end{equation}'
+        ]);
+
+        assert.deepStrictEqual(result.blockNumbering[0].counts.eq, ['A']);
+        assert.deepStrictEqual(result.blockNumbering[1].counts.eq, ['2']);
+        assert.equal(result.labelMap['eq:tagged'], 'A');
+        assert.equal(result.labelMap['eq:next'], '2');
+    });
+
+    test('reuses unchanged block summaries while updating numbering offsets', () => {
+        const scanner = new LatexCounterScanner();
+        const firstReads: number[] = [];
+        scanner.scan(createBlockTextProvider([
+            '\\begin{equation}\\label{eq:a}a=1\\end{equation}',
+            '\\begin{equation}\\label{eq:b}b=1\\end{equation}',
+            '\\begin{equation}\\label{eq:c}c=1\\end{equation}'
+        ], firstReads));
+
+        const secondReads: number[] = [];
+        const result = scanner.scan(createBlockTextProvider([
+            '\\begin{equation}\\label{eq:a}a=1\\end{equation}',
+            [
+                '\\begin{equation}\\label{eq:b}b=1\\end{equation}',
+                '\\begin{equation}\\label{eq:new}n=1\\end{equation}'
+            ].join('\n'),
+            '\\begin{equation}\\label{eq:c}c=1\\end{equation}'
+        ], secondReads));
+
+        assert.deepStrictEqual(firstReads, [0, 1, 2]);
+        assert.deepStrictEqual(secondReads, [1]);
+        assert.equal(result.labelMap['eq:a'], '1');
+        assert.equal(result.labelMap['eq:b'], '2');
+        assert.equal(result.labelMap['eq:new'], '3');
+        assert.equal(result.labelMap['eq:c'], '4');
     });
 });
 
@@ -383,7 +493,46 @@ suite('LatexDocument source mapping', () => {
         assert.ok(result.bibEntries.has('smith2024'));
         assert.equal(result.bibEntries.get('smith2024')?.fields.title, 'Paper');
         assert.equal(result.contentStartLineOffset, 0);
-        assert.equal(result.blockTexts.length, 1);
+        assert.equal(result.blockSpans.length, 1);
+    });
+
+    test('exposes block text through an accessor for future span-backed storage', () => {
+        const doc = createDocument(['First block', 'Second block']);
+
+        assert.equal(doc.getBlockCount(), 2);
+        assert.equal(doc.getBlockText(0), 'First block');
+        assert.equal(doc.getBlockText(1), 'Second block');
+        assert.equal(doc.getBlockText(2), undefined);
+        assert.equal(doc.getBlockHash(0), stableHash('First block'));
+
+        doc.releaseTextContent();
+        assert.equal(doc.getBlockCount(), 0);
+        assert.equal(doc.getBlockText(0), undefined);
+        assert.equal(doc.getBlockHash(0), undefined);
+    });
+
+    test('stores parsed blocks as body spans and hashes', async () => {
+        const mainUri = vscode.Uri.file('/project/main.tex');
+        const provider = new MemoryFileProvider(new Map([
+            [normalizeUri(mainUri), [
+                '\\begin{document}',
+                'First paragraph.',
+                '',
+                'Second paragraph with \\label{p:two}.',
+                '\\end{document}'
+            ].join('\n')]
+        ]));
+        const doc = new LatexDocument(provider);
+
+        const result = await doc.parse(mainUri);
+        doc.applyResult(result);
+
+        assert.deepStrictEqual(resultBlockTexts(result).map(block => block.trim()), [
+            'First paragraph.',
+            'Second paragraph with \\label{p:two}.'
+        ]);
+        assert.deepStrictEqual(result.blockHashes, resultBlockTexts(result).map(text => stableHash(text)));
+        assert.equal(doc.getBlockText(1)?.trim(), 'Second paragraph with \\label{p:two}.');
     });
 
     test('drops comment-only blocks without leaving preview gaps', async () => {
@@ -416,6 +565,7 @@ suite('LatexDocument source mapping', () => {
         const result = await doc.parse(mainUri);
         doc.applyResult(result);
         const html = new SmartRenderer(provider).render(doc).htmls?.join('') ?? '';
+        const blocks = resultBlockTexts(result);
         const withoutComments = (text: string) => text
             .split(/\r?\n/)
             .map(line => {
@@ -425,10 +575,10 @@ suite('LatexDocument source mapping', () => {
             .join('\n')
             .trim();
 
-        assert.ok(result.blockTexts.every(block => withoutComments(block).length > 0));
-        assert.ok(result.blockTexts.some(block => block.includes('Notice that this paragraph')));
-        assert.ok(result.blockTexts.some(block => block.includes('In Eq.~\\eqref{eq:real}')));
-        assert.doesNotMatch(result.blockTexts.join('\n'), /eq:commented/);
+        assert.ok(blocks.every(block => withoutComments(block).length > 0));
+        assert.ok(blocks.some(block => block.includes('Notice that this paragraph')));
+        assert.ok(blocks.some(block => block.includes('In Eq.~\\eqref{eq:real}')));
+        assert.doesNotMatch(blocks.join('\n'), /eq:commented/);
         assert.match(html, /Notice that this paragraph/);
         assert.match(html, /In Eq\./);
         assert.doesNotMatch(html, /eq:commented|%\\begin|<div class="latex-block"[^>]*>\s*<\/div>/);
@@ -457,12 +607,13 @@ suite('LatexDocument source mapping', () => {
         const result = await doc.parse(mainUri);
         doc.applyResult(result);
         const html = new SmartRenderer(provider).render(doc).htmls?.join('') ?? '';
+        const blocks = resultBlockTexts(result);
 
-        assert.ok(result.blockTexts.some(block => block.includes('First item')));
-        assert.ok(result.blockTexts.some(block => block.includes('Second item')));
-        assert.ok(result.blockTexts.some(block => block.includes('Third item')));
-        assert.ok(result.blockTexts.some(block => block.includes('The next paragraph')));
-        assert.ok(result.blockTexts.every(block => block.trim() !== '\\end{itemize}'));
+        assert.ok(blocks.some(block => block.includes('First item')));
+        assert.ok(blocks.some(block => block.includes('Second item')));
+        assert.ok(blocks.some(block => block.includes('Third item')));
+        assert.ok(blocks.some(block => block.includes('The next paragraph')));
+        assert.ok(blocks.every(block => block.trim() !== '\\end{itemize}'));
         assert.doesNotMatch(html, /<div class="latex-block"[^>]*>\s*<\/div>/);
         assert.match(html, /The next paragraph should follow the list/);
     });
@@ -491,7 +642,7 @@ suite('LatexDocument source mapping', () => {
 
         const result = await doc.parse(mainUri);
         doc.applyResult(result);
-        const joinedBlocks = result.blockTexts.join('\n');
+        const joinedBlocks = resultBlockTexts(result).join('\n');
         const html = new SmartRenderer(provider).render(doc).htmls?.join('') ?? '';
         const visibleHtml = html.replace(/<script type="text\/snaptex-tikz"[\s\S]*?<\/script>/g, '');
 
@@ -617,10 +768,13 @@ suite('SmartRenderer', () => {
         const repoRoot = path.resolve(__dirname, '..', '..');
         const rulesSource = fs.readFileSync(path.join(repoRoot, 'src', 'rules.ts'), 'utf8');
         const typesSource = fs.readFileSync(path.join(repoRoot, 'src', 'types.ts'), 'utf8');
+        const rendererSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer.ts'), 'utf8');
 
         assert.doesNotMatch(rulesSource, /from '\.\/renderer'/);
         assert.match(typesSource, /export interface RenderContext/);
         assert.match(typesSource, /apply: \(text: string, renderer: RenderContext\) => string/);
+        assert.match(rendererSource, /doc\.getBlockText\(index\)/);
+        assert.doesNotMatch(rendererSource, /lastBlockTexts/);
     });
 
     test('returns patch payloads for small localized edits', () => {
@@ -634,6 +788,52 @@ suite('SmartRenderer', () => {
         assert.equal(payload.deleteCount, 1);
         assert.equal(payload.htmls?.length, 1);
         assert.match(payload.htmls?.[0] ?? '', /B changed/);
+    });
+
+    test('reads only changed block text for localized hash patches', () => {
+        const renderer = new SmartRenderer(new MemoryFileProvider());
+        renderer.render(createDocument(['A', 'B', 'C']));
+
+        const nextDoc = createDocument(['A', 'B changed', 'C']);
+        const reads: number[] = [];
+        const getBlockText = nextDoc.getBlockText.bind(nextDoc);
+        nextDoc.getBlockText = (index: number) => {
+            reads.push(index);
+            return getBlockText(index);
+        };
+
+        const payload = renderer.render(nextDoc);
+
+        assert.equal(payload.type, 'patch');
+        assert.deepStrictEqual(reads, [1]);
+    });
+
+    test('updates citation order from cached block metadata without rescanning all text', () => {
+        const renderer = new SmartRenderer(new MemoryFileProvider());
+        renderer.render(createDocument([
+            'See \\cite{smith2024}.',
+            'Middle text.',
+            '\\bibliography{refs}'
+        ]));
+
+        const nextDoc = createDocument([
+            'See \\cite{doe2025}.',
+            'Middle text.',
+            '\\bibliography{refs}'
+        ]);
+        const reads: number[] = [];
+        const getBlockText = nextDoc.getBlockText.bind(nextDoc);
+        nextDoc.getBlockText = (index: number) => {
+            reads.push(index);
+            return getBlockText(index);
+        };
+
+        const payload = renderer.render(nextDoc);
+
+        assert.equal(payload.type, 'patch');
+        assert.deepStrictEqual(reads, [0]);
+        assert.ok(payload.dirtyBlocks?.[2]);
+        assert.deepStrictEqual(renderer.citedKeys, ['doe2025']);
     });
 
     test('adds block hashes from block text only and disables hash preservation on macro changes', () => {
