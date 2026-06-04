@@ -880,8 +880,20 @@ suite('Webview resource loading', () => {
         assert.match(webviewSource, /class BlockVirtualizationController/);
         assert.match(webviewSource, /this\.enabled = false/);
         assert.match(webviewSource, /this\.heightCache = new Map\(\)/);
+        assert.match(webviewSource, /this\.htmlCache = new Map\(\)/);
         assert.match(webviewSource, /rememberBlockHeight\(block\)/);
+        assert.match(webviewSource, /createShellForBlock\(block\)/);
+        assert.match(webviewSource, /className = 'latex-block-shell'/);
+        assert.match(webviewSource, /data-mounted/);
+        assert.match(webviewSource, /mountShell\(shell\)/);
+        assert.match(webviewSource, /unmountShell\(shell\)/);
+        assert.match(webviewSource, /updateMountedShells\(onMount\)/);
+        assert.match(webviewSource, /replaceContentWithShells\(blocks, onMount\)/);
         assert.match(webviewSource, /this\.virtualization\.setEnabled\(event\.data\.config\.experimentalVirtualization === true\)/);
+        assert.match(webviewSource, /this\.virtualization\.replaceContentWithShells\(newElements/);
+        assert.match(webviewSource, /applyVirtualPatch\(payload\)/);
+        assert.match(webviewSource, /getBlockOrShellByIndex\(index\)/);
+        assert.match(webviewSource, /window\.addEventListener\('resize', \(\) => this\.updateVirtualizedBlocks\(\)\)/);
         assert.match(webviewSource, /this\.virtualization\.rememberBlockHeight\(oldBlock\)/);
     });
 
