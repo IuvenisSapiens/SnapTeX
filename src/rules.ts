@@ -147,6 +147,42 @@ function splitTikzLibraries(libraries: string): string[] {
         .filter(Boolean);
 }
 
+function extractUsedTikzStyleDefinitions(globalPreamble: string, pictureSource: string): string {
+    const usedDefinitions: string[] = [];
+    const visitedStyles = new Set<string>();
+    const styleRegex = /([A-Za-z@][\w@./:-]*)\s*\/\.style(?:\s+(?:args|n args))?\s*=\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/g;
+    const styleDefinitions = new Map<string, string>();
+    let match;
+
+    while ((match = styleRegex.exec(globalPreamble)) !== null) {
+        styleDefinitions.set(match[1], match[2]);
+    }
+
+    const visitStyle = (styleName: string) => {
+        if (visitedStyles.has(styleName)) { return; }
+
+        const definition = styleDefinitions.get(styleName);
+        if (!definition) { return; }
+
+        visitedStyles.add(styleName);
+        usedDefinitions.push(definition);
+
+        for (const nestedStyle of styleDefinitions.keys()) {
+            if (new RegExp(`(^|[^A-Za-z0-9@./:-])${nestedStyle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9@./:-]|$)`).test(definition)) {
+                visitStyle(nestedStyle);
+            }
+        }
+    };
+
+    for (const styleName of styleDefinitions.keys()) {
+        if (new RegExp(`(^|[^A-Za-z0-9@./:-])${styleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9@./:-]|$)`).test(pictureSource)) {
+            visitStyle(styleName);
+        }
+    }
+
+    return usedDefinitions.join('\n');
+}
+
 function shouldIncludeTikzLibrary(library: string, signalText: string): boolean {
     const patterns = TIKZ_LIBRARY_PATTERNS[library];
     if (!patterns) { return true; }
@@ -170,7 +206,7 @@ function filterTikzGlobalForPicture(globalPreamble: string, pictureSource: strin
     const after = globalPreamble.substring(lastIndex).trim();
     if (after) { retainedGlobals.push(after); }
 
-    const signalText = `${pictureSource}\n${retainedGlobals.join('\n')}`;
+    const signalText = `${pictureSource}\n${extractUsedTikzStyleDefinitions(globalPreamble, pictureSource)}`;
     const selectedLibraries = Array.from(new Set(
         requestedLibraries.filter(library => shouldIncludeTikzLibrary(library, signalText))
     ));

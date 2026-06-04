@@ -481,7 +481,9 @@ suite('SmartRenderer', () => {
             tikzGlobal: [
                 '\\usetikzlibrary{calc, shapes.geometric, positioning, decorations.pathreplacing, patterns, arrows.meta, backgrounds, angles}',
                 '\\definecolor{brand}{RGB}{1,2,3}',
-                '\\tikzset{dot/.style={circle,fill}}'
+                '\\tikzset{dot/.style={circle,fill}}',
+                '\\tikzset{braceStyle/.style={decorate, decoration={brace}}}',
+                '\\tikzset{posStyle/.style={right=of other}}'
             ].join('\n')
         });
         const payload = renderer.render(doc);
@@ -495,6 +497,29 @@ suite('SmartRenderer', () => {
         assert.doesNotMatch(html, /decorations\.pathreplacing/);
         assert.doesNotMatch(html, /patterns/);
         assert.doesNotMatch(html, /shapes\.geometric/);
+    });
+
+    test('includes TikZ libraries required by used global styles', () => {
+        const renderer = new SmartRenderer(new MemoryFileProvider());
+        const doc = createDocument([
+            [
+                '\\begin{tikzpicture}',
+                '\\draw[braceStyle] (0,0) -- (1,0);',
+                '\\end{tikzpicture}'
+            ].join('\n')
+        ], {
+            tikzGlobal: [
+                '\\usetikzlibrary{calc, decorations.pathreplacing, positioning}',
+                '\\tikzset{braceStyle/.style={decorate, decoration={brace}}}',
+                '\\tikzset{posStyle/.style={right=of other}}'
+            ].join('\n')
+        });
+        const payload = renderer.render(doc);
+        const html = payload.htmls?.join('') ?? '';
+
+        assert.match(html, /\\usetikzlibrary\{decorations\.pathreplacing\}/);
+        assert.doesNotMatch(html, /positioning/);
+        assert.doesNotMatch(html, /calc/);
     });
 });
 
