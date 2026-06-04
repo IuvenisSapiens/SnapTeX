@@ -627,14 +627,20 @@ suite('Webview resource loading', () => {
         assert.doesNotMatch(webviewSource, /setTimeout\(\(\) => \{[\s\S]*window\.failPendingTikzContainers\('TikZ rendering timed out\.'\)/);
     });
 
-    test('debounces TikZ activation so intermediate edits do not enter the TikZJax queue', () => {
+    test('coalesces TikZ activation so edits during a render only queue the latest run', () => {
         const repoRoot = path.resolve(__dirname, '..', '..');
         const webviewSource = fs.readFileSync(path.join(repoRoot, 'media', 'webview.html'), 'utf8');
 
-        assert.match(webviewSource, /const TIKZ_RENDER_DEBOUNCE_MS = 1500/);
-        assert.match(webviewSource, /this\.tikzRenderTimer = null/);
-        assert.match(webviewSource, /clearTimeout\(this\.tikzRenderTimer\)/);
-        assert.match(webviewSource, /const loadPromise = window\.ensureTikzJaxLoaded\(\)/);
+        assert.match(webviewSource, /const TIKZ_RENDER_DEBOUNCE_MS = 200/);
+        assert.match(webviewSource, /class CoalescingTaskScheduler/);
+        assert.match(webviewSource, /this\.running = false/);
+        assert.match(webviewSource, /this\.pending = true/);
+        assert.match(webviewSource, /if \(this\.running\) return/);
+        assert.match(webviewSource, /if \(this\.pending\) \{[\s\S]*this\.schedule\(\);[\s\S]*\}/);
+        assert.match(webviewSource, /this\.tikzRenderScheduler = new CoalescingTaskScheduler/);
+        assert.match(webviewSource, /runTikzRenderBatch\(\)/);
+        assert.match(webviewSource, /waitForTikzBatch\(containers\)/);
+        assert.match(webviewSource, /snaptex-tikz-settled/);
         assert.match(webviewSource, /window\.activatePendingTikzScripts\(document\)/);
         assert.match(webviewSource, /script\.replaceWith\(activeScript\)/);
     });
