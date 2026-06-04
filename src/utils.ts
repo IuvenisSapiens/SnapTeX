@@ -97,7 +97,7 @@ export function createHiddenLabelAnchor(labelName: string): string {
  * Helper: Apply LaTeX text styles (bold, italic, underline, color, etc.) to HTML tags.
  * This encapsulates logic originally in 'text_styles' rule for reuse.
  */
-export function resolveLatexStyles(text: string): string {
+export function resolveLatexStyles(text: string, protectHtml?: (html: string) => string): string {
     // 1. Standard styles: \textbf{...}, \textit{...}, etc.
     text = text.replace(/\\(textbf|textit|emph|texttt|textsf|textrm|underline)\{((?:[^{}]|{[^{}]*})*)\}/g, (match, cmd, content) => {
         let startTag = '', endTag = '';
@@ -111,7 +111,7 @@ export function resolveLatexStyles(text: string): string {
             case 'textrm': startTag = '<span style="font-family: serif;">'; endTag = '</span>'; break;
             case 'underline': startTag = '<u>'; endTag = '</u>'; break;
         }
-        return applyStyleToTexList(startTag, endTag, content);
+        return applyStyleToTexList(startTag, endTag, content, protectHtml);
     });
 
     // 2. Old LaTeX styles: {\bf ...}, {\it ...}, etc.
@@ -124,20 +124,20 @@ export function resolveLatexStyles(text: string): string {
             case 'sf': startTag = '<span style="font-family: sans-serif; font-size: 0.85em;">'; endTag = '</span>'; break;
             case 'rm': startTag = '<span style="font-family: serif;">'; endTag = '</span>'; break;
         }
-        return applyStyleToTexList(startTag, endTag, content);
+        return applyStyleToTexList(startTag, endTag, content, protectHtml);
     });
 
     // 3. Color: {\color{red} ...} or \color{red}{...}
     // Handle {\color{name} content}
     text = text.replace(/\{\\color\{([a-zA-Z0-9]+)\}\s*((?:[^{}]|{[^{}]*})*)\}/g, (match, color, content) => {
-        return applyStyleToTexList(`<span style="color: ${color}">`, '</span>', content);
+        return applyStyleToTexList(`<span style="color: ${color}">`, '</span>', content, protectHtml);
     });
     // Handle \color{name}{content}
     text = text.replace(/\\color\{([a-zA-Z]+)\}\{([^}]*)\}/g, (match, color, content) => {
-        return applyStyleToTexList(`<span style="color: ${color}">`, '</span>', content);
+        return applyStyleToTexList(`<span style="color: ${color}">`, '</span>', content, protectHtml);
     });
     text = text.replace(/\\textcolor\{([a-zA-Z0-9]+)\}\{((?:[^{}]|{[^{}]*})*)\}/g, (match, color, content) => {
-        return applyStyleToTexList(`<span style="color: ${color}">`, '</span>', content);
+        return applyStyleToTexList(`<span style="color: ${color}">`, '</span>', content, protectHtml);
     });
 
     return text;
@@ -236,20 +236,24 @@ export function toRoman(num: number, uppercase: boolean = false): string {
 /**
  * Applies HTML tags to content, handling list items specially if present.
  */
-function applyStyleToTexList(startTag: string, endTag: string, content: string): string {
+function applyStyleToTexList(startTag: string, endTag: string, content: string, protectHtml?: (html: string) => string): string {
+    const wrap = (innerText: string) => {
+        const html = `${startTag}${escapeHtml(innerText)}${endTag}`;
+        return protectHtml ? protectHtml(html) : html;
+    };
     const lines = content.split(/\r?\n/);
     if (lines.some(line => /^\s*([-*+]|\d+\.)\s/.test(line))) {
         return lines.map(line => {
             const listMatch = line.match(/^(\s*)([-*+]|\d+\.)\s+(.*)$/);
             if (listMatch) {
                 const [_, indent, bullet, innerText] = listMatch;
-                return `${indent}${bullet} ${startTag}${innerText}${endTag}`;
+                return `${indent}${bullet} ${wrap(innerText)}`;
             } else {
-                return line.trim().length > 0 ? `${startTag}${line}${endTag}` : line;
+                return line.trim().length > 0 ? wrap(line) : line;
             }
         }).join('\n');
     }
-    return `${startTag}${content}${endTag}`;
+    return wrap(content);
 }
 
 /**

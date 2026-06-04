@@ -121,7 +121,7 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                                 </span>
                             </div>${hiddenHtml}`;
                 }
-                return result + (isFollowedByText ? '<span class="no-indent-marker"></span>' : '');
+                return result + (isFollowedByText ? renderer.protect('raw', '<span class="no-indent-marker"></span>') : '');
             });
         }
     },
@@ -243,7 +243,7 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
         apply: (text, renderer: RenderContext) => {
             return text.replace(new RegExp(R_BIBLIOGRAPHY, 'g'), (match, file) => {
                 if (renderer.citedKeys.length === 0) {
-                    return `<div class="latex-bibliography error">No citations found.</div>`;
+                    return renderer.protect('bib', `<div class="latex-bibliography error">No citations found.</div>`);
                 }
                 const uniqueKeys = Array.from(new Set(renderer.citedKeys));
                 const sortedKeys = uniqueKeys.sort((a, b) => {
@@ -344,19 +344,21 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                 let header = `<span class="latex-thm-head"><strong class="latex-theorem-header">${displayName} <span class="sn-cnt" data-type="thm"></span>`;
 
                 if (optArg) {
-                    header += `</strong>&nbsp;(${optArg}).</span>&nbsp; `;
+                    header += `</strong>&nbsp;(${escapeHtml(optArg)}).</span>&nbsp; `;
                 } else {
                     header += `.</strong></span>&nbsp; `;
                 }
 
-                return `\n\n<div class="latex-theorem">\n\n${header}${content.trim()}\n\n</div>\n\n`;
+                let body = resolveLatexStyles(content.trim(), html => renderer.protect('style', html));
+                body = escapeHtml(body);
+                return `\n\n${renderer.protect('thm', `<div class="latex-theorem">${header}${body}</div>`)}\n\n`;
             });
 
             text = text.replace(/\\begin\{proof\}(?:\[(.*?)\])?/gi, (match, optArg) => {
-                const title = optArg ? `Proof (${optArg}).` : `Proof.`;
-                return `\n<span class="no-indent-marker"></span>**${title}** `;
+                const title = optArg ? `Proof (${escapeHtml(optArg)}).` : `Proof.`;
+                return `\n${renderer.protect('raw', '<span class="no-indent-marker"></span>')}**${title}** `;
             });
-            return text.replace(/\\end\{proof\}/gi, () => ` <span style="float:right;">QED</span>\n`);
+            return text.replace(/\\end\{proof\}/gi, () => ` ${renderer.protect('raw', '<span style="float:right;">QED</span>')}\n`);
         }
     },
 
@@ -376,8 +378,8 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
                     let res = val.replace(/<br\s*\/?>/gi, lineBreakToken);
                     res = res.replace(/\\\\/g, lineBreakToken);
                     res = res.replace(/\$((?:\\.|[^\\$])+?)\$/g, (m: string, c: string) => renderMath(c.trim(), false, renderer));
+                    res = resolveLatexStyles(res, html => renderer.protect('style', html));
                     res = escapeHtml(res);
-                    res = resolveLatexStyles(res);
                     return res;
                 };
 
@@ -471,7 +473,7 @@ export const DEFAULT_PREPROCESS_RULES: PreprocessRule[] = [
         name: 'text_styles',
         priority: 190,
         apply: (text, renderer: RenderContext) => {
-            return resolveLatexStyles(text);
+            return resolveLatexStyles(text, html => renderer.protect('style', html));
         }
     }
 ];

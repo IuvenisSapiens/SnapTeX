@@ -802,6 +802,26 @@ suite('SmartRenderer', () => {
         assert.match(html, /class="katex"/);
     });
 
+    test('escapes raw source HTML while preserving generated preview HTML', () => {
+        const html = renderBlocks([
+            'Plain <img src=x onerror=alert(1)> and \\textbf{bold}.',
+            '\\begin{theorem}<script>alert(1)</script> and \\emph{safe}.\\end{theorem}'
+        ]);
+
+        assert.doesNotMatch(html, /<img|<script/i);
+        assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+        assert.match(html, /<strong>bold<\/strong>/);
+        assert.match(html, /class="latex-theorem"/);
+        assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+        assert.match(html, /<em>safe<\/em>/);
+    });
+
+    test('does not trust KaTeX HTML-producing commands by default', () => {
+        const html = renderBlocks(['$\\href{javascript:alert(1)}{bad}$']);
+
+        assert.doesNotMatch(html, /href="javascript:alert/i);
+    });
+
     test('updates maketitle metadata without exposing raw metadata in block hashes', () => {
         const renderer = new SmartRenderer();
         renderer.render(createDocument(['\\maketitle'], { title: 'First' }));
@@ -1191,6 +1211,15 @@ suite('Webview resource loading', () => {
         assert.match(panelSource, /const webviewPdfUri = toUri\('media\/webview-pdf\.js'\)/);
         assert.match(buildSource, /entryPoints: \['src\/webview\/main\.ts'\]/);
         assert.match(buildSource, /entryPoints: \['src\/webview\/pdf\.ts'\]/);
+    });
+
+    test('keeps the webview CSP on bundled resources instead of remote script/connect sources', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const htmlSource = fs.readFileSync(path.join(repoRoot, 'media', 'webview.html'), 'utf8');
+
+        assert.doesNotMatch(htmlSource, /https:\/\/unpkg\.com/);
+        assert.doesNotMatch(htmlSource, /script-src[^;]*https:/);
+        assert.doesNotMatch(htmlSource, /connect-src[^;]*https:/);
     });
 
     test('lazy-loads TikZJax only when TikZ scripts are present', () => {

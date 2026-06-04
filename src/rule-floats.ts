@@ -88,7 +88,7 @@ export function createAlgorithmRule(): PreprocessRule {
                             }
                         }
 
-                        contentToRender = resolveLatexStyles(contentToRender);
+                        contentToRender = resolveLatexStyles(contentToRender, html => renderer.protect('style', html));
                         const renderedContent = renderer.renderInline(contentToRender);
                         const itemClass = isSpecialLine ? "alg-item alg-item-no-marker" : "alg-item";
                         listItems += `<li class="${itemClass}">${prefixHtml}${renderedContent}</li>`;
@@ -199,7 +199,7 @@ export function createTableRule(): PreprocessRule {
                         const rows = rawContent.split(/\\\\(?:\[.*?\])?/).filter((row: string) => row.trim().length > 0).map((rowText: string) => {
                             const cells = rowText.split('&').map((cell: string) => {
                                 const cellAttrs = 'style="padding: 5px 10px; border: 1px solid #ddd;"';
-                                const cellContent = resolveLatexStyles(cell.trim());
+                                const cellContent = resolveLatexStyles(cell.trim(), html => renderer.protect('style', html));
                                 return `<td ${cellAttrs}>${renderer.renderInline(cellContent)}</td>`;
                             });
                             return `<tr>${cells.join('')}</tr>`;
