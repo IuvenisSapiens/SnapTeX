@@ -1,7 +1,7 @@
 # SnapTeX Optimization TODO
 
 > Current branch: `dev`  
-> Last verified: `npm test` passed with 46 tests after adding disabled shell-virtualization plumbing.
+> Last verified: `npm test` passed with 47 tests after adding fixture-backed long-document smoke coverage.
 > Rule for future work: keep each change block small, add or update tests before behavior changes, then run `npm test` and commit only the files for that block.
 
 ## Overall Goal
@@ -123,7 +123,7 @@
 - [x] 3. Release far-offscreen PDF canvas bitmaps and rerender them when they return near the viewport.
 - [x] 4. Start the full-update payload transition with a low-risk block payload path.
 - [x] 5. Prepare shell-based block virtualization without turning it on globally.
-- [ ] 6. Split or strengthen tests where the current monolithic suite is making changes risky.
+- [x] 6. Split or strengthen tests where the current monolithic suite is making changes risky.
 - [ ] 7. Apply low-risk security and architecture cleanup only where tests can pin behavior.
 
 ### A. Remaining Correctness and Security
@@ -188,10 +188,11 @@
   - `multi-file/section1.tex`
   - `bibliography/main.tex`
   - `bibliography/main.bib`
-  - `long-doc.tex`
+  - [x] `long-doc.tex`
 - [ ] Add renderer snapshot-style tests for representative blocks.
 - [ ] Add source mapping tests for included files with line offsets and labels.
-- [ ] Add a generated long-document smoke test.
+- [x] Add a fixture-backed long-document smoke test.
+- [ ] Continue splitting the growing monolithic test file into focused files.
 
 ### C. Memory Instrumentation and Low-Risk Wins
 

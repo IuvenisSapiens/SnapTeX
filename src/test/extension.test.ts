@@ -84,6 +84,10 @@ function renderBlocks(blockTexts: string[]): string {
     return payload.htmls.join('');
 }
 
+function readFixture(name: string): string {
+    return fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'test', 'fixtures', name), 'utf8');
+}
+
 suite('DiffEngine', () => {
     test('computes unchanged, insert, delete, and replace spans', () => {
         assert.deepStrictEqual(DiffEngine.compute(['a', 'b'], ['a', 'b']), {
@@ -532,6 +536,39 @@ suite('SmartRenderer', () => {
         assert.match(html, /\\usetikzlibrary\{decorations\.pathreplacing\}/);
         assert.doesNotMatch(html, /positioning/);
         assert.doesNotMatch(html, /calc/);
+    });
+
+    test('renders a fixture-backed long document and keeps localized edits as patches', async () => {
+        const mainUri = vscode.Uri.file('/project/long-doc.tex');
+        const bibUri = vscode.Uri.file('/project/refs.bib');
+        const fixtureText = readFixture('long-doc.tex');
+        const files = new Map([
+            [normalizeUri(mainUri), fixtureText],
+            [normalizeUri(bibUri), '@article{smith2024, title={Fixture Paper}, author={Smith, Jane}, year={2024}}']
+        ]);
+        const provider = new MemoryFileProvider(files);
+        const renderer = new SmartRenderer(provider);
+        const firstDoc = new LatexDocument(provider);
+        firstDoc.applyResult(await firstDoc.parse(mainUri));
+
+        const fullPayload = renderer.render(firstDoc);
+
+        assert.equal(fullPayload.type, 'full');
+        assert.ok((fullPayload.htmls?.length ?? 0) >= 8);
+        assert.ok(fullPayload.htmls?.every(html => /data-block-hash="/.test(html)));
+
+        files.set(
+            normalizeUri(mainUri),
+            fixtureText.replace('The second paragraph contains', 'The revised second paragraph contains')
+        );
+        const secondDoc = new LatexDocument(provider);
+        secondDoc.applyResult(await secondDoc.parse(mainUri));
+
+        const patchPayload = renderer.render(secondDoc);
+
+        assert.equal(patchPayload.type, 'patch');
+        assert.equal(patchPayload.htmls?.length, 1);
+        assert.match(patchPayload.htmls?.[0] ?? '', /revised second paragraph/);
     });
 });
 
