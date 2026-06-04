@@ -174,7 +174,7 @@
 ### A. Remaining Correctness and Security
 
 - [x] Add direct tests for `postProcessHtml()` abstract/keywords handling.
-- [ ] Add tests for reference/citation rendering edge cases.
+- [x] Add tests for reference/citation rendering edge cases.
   - Multiple labels in one `\ref{a,b}`.
   - Missing references.
   - `\eqref`.

@@ -710,6 +710,30 @@ suite('SmartRenderer', () => {
         assert.equal(html.match(/class="latex-block/g)?.length ?? 0, 2);
     });
 
+    test('renders reference and citation edge cases', () => {
+        const doc = createDocument([
+            [
+                '\\section{Intro}\\label{sec:intro}',
+                'See \\ref{sec:intro,fig:missing}, Eq.~\\eqref{eq:one}, \\citep[see][p. 2]{smith2024,doe2025}, \\citet{smith2024}, and \\citeyear{doe2025}.'
+            ].join('\n'),
+            '\\begin{equation}\\label{eq:one}x=1\\end{equation}'
+        ]);
+        doc.bibEntries = new Map([
+            ['smith2024', { key: 'smith2024', type: 'article', fields: { author: 'Smith, Jane', year: '2024', title: 'A Paper' } }],
+            ['doe2025', { key: 'doe2025', type: 'article', fields: { author: 'Doe, John', year: '2025', title: 'Another Paper' } }]
+        ]);
+        const renderer = new SmartRenderer(new MemoryFileProvider());
+        const payload = renderer.render(doc);
+        const html = payload.htmls?.join('') ?? '';
+
+        assert.match(html, /href="#sec:intro"[^>]*data-key="sec:intro"[^>]*>\?<\/a>/);
+        assert.match(html, /href="#fig:missing"[^>]*data-key="fig:missing"[^>]*>\?<\/a>/);
+        assert.match(html, /Eq\.&nbsp;\(<a href="#eq:one"[^>]*data-key="eq:one"[^>]*>\?<\/a>\)/);
+        assert.match(html, /\(see <a href="#ref-smith2024"[^>]*>Smith, 2024<\/a>; <a href="#ref-doe2025"[^>]*>Doe, 2025<\/a>, p\. 2\)/);
+        assert.match(html, /Smith \(<a href="#ref-smith2024"[^>]*>2024<\/a>\)/);
+        assert.match(html, /and <a href="#ref-doe2025"[^>]*>2025<\/a>/);
+    });
+
     test('unwraps resizebox around protected tikz figures', () => {
         const html = renderBlocks([
             [
