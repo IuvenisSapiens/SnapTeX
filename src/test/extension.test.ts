@@ -1177,6 +1177,25 @@ suite('PDF request validation', () => {
         assert.match(webviewSource, /this\.smartFullUpdateFromBlocks\(payload\.htmls, payload\.preserveUnchangedBlocks !== false\)/);
     });
 
+    test('resets renderer state when switching root documents', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const panelSource = fs.readFileSync(path.join(repoRoot, 'src', 'panel.ts'), 'utf8');
+
+        assert.match(panelSource, /const previousSourceUri = this\._sourceUri/);
+        assert.match(panelSource, /normalizeUri\(previousSourceUri\) !== normalizeUri\(docUri\)/);
+        assert.match(panelSource, /if \(sourceChanged\) \{\s*this\._renderer\.resetState\(\);\s*\}/);
+    });
+
+    test('prunes virtualized block html and height caches to active block keys', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const webviewSource = readWebviewRuntimeSource(repoRoot);
+
+        assert.match(webviewSource, /pruneCaches\(activeKeys\)/);
+        assert.match(webviewSource, /prune\(this\.heightCache\)/);
+        assert.match(webviewSource, /prune\(this\.htmlCache\)/);
+        assert.match(webviewSource, /this\.virtualization\.pruneCachesFromContent\(\)/);
+    });
+
     test('releases far-offscreen PDF canvas bitmaps while preserving layout for rerender', () => {
         const repoRoot = path.resolve(__dirname, '..', '..');
         const webviewSource = readWebviewRuntimeSource(repoRoot);
