@@ -2,61 +2,7 @@ import { toRoman, capitalizeFirstLetter, createHiddenLabelAnchor, escapeHtml, es
 import { PreprocessRule, RenderContext } from './types';
 import { BibTexParser } from './bib';
 import { REGEX_STR, R_LABEL, R_REF, R_CITATION, R_BIBLIOGRAPHY } from './patterns';
-import katex from 'katex';
-
-/**
- * Helper to render math using KaTeX and protect it.
- */
-function renderMath(tex: string, displayMode: boolean, renderer: RenderContext): string {
-    try {
-        const html = katex.renderToString(tex, {
-            displayMode: displayMode,
-            macros: renderer.currentMacros,
-            throwOnError: false,
-            errorColor: '#cc0000',
-            globalGroup: true,
-            trust: true
-        });
-        return renderer.protect('math', html);
-    } catch (e) {
-        return renderer.protect('math', `<span style="color:red">Math Error</span>`);
-    }
-}
-
-/**
- * Helper to create a protected reference link
- */
-function createRefLink(key: string, renderer: RenderContext, type: 'ref' | 'eqref' = 'ref'): string {
-    const safeKey = escapeHtmlAttribute(key);
-    const html = `<a href="#${safeKey}" class="sn-ref" data-key="${safeKey}" style="color:inherit; text-decoration:none;">?</a>`;
-    const token = renderer.protect('ref', html);
-    if (type === 'eqref') {
-        return `(\\text{${token}})`;
-    }
-    return `\\text{${token}}`;
-}
-
-/**
- * Scans text for protection tokens (like hidden labels) that might be floating
- * outside the main content (e.g. \label after \caption or \includegraphics).
- */
-function recoverPreservedTokens(text: string): string {
-    // Matches tokens format defined in ProtectionManager: XSNAP:namespace:idY
-    const tokenRegex = /XSNAP:[a-zA-Z0-9_-]+:\d+Y/g;
-    let found = "";
-    let match;
-    while ((match = tokenRegex.exec(text)) !== null) {
-        found += match[0];
-    }
-    return found;
-}
-
-function unwrapResizeboxAroundProtectedContent(text: string): string {
-    return text.replace(
-        /\\resizebox\s*\{[^{}]*\}\s*\{[^{}]*\}\s*\{\s*((?:XSNAP:[a-zA-Z0-9_-]+:\d+Y\s*)+)\}/g,
-        (_match, protectedContent: string) => protectedContent.trim()
-    );
-}
+import { createRefLink, recoverPreservedTokens, renderMath, unwrapResizeboxAroundProtectedContent } from './rule-helpers';
 
 /**
  * Recursive Dependency Resolver
