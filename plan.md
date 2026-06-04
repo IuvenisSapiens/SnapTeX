@@ -1,7 +1,7 @@
 # SnapTeX Optimization TODO
 
 > Current branch: `dev`  
-> Last verified: `npm test` passed with 41 tests after the TikZ render batching hardening work.  
+> Last verified: `npm test` passed with 43 tests after adding block-text hashes for DOM diff preservation.
 > Rule for future work: keep each change block small, add or update tests before behavior changes, then run `npm test` and commit only the files for that block.
 
 ## Overall Goal
@@ -117,7 +117,7 @@
 ### Active 1--7 Work Sequence
 
 - [x] 1. Update this TODO after the TikZ work and keep it synchronized after each module.
-- [ ] 2. Add `blockHash = hash(blockText)` for structural block identity.
+- [x] 2. Add `blockHash = hash(blockText)` for structural block identity.
   - Do not include numbering, references, PDF/TikZ runtime state, or generated DOM in the hash.
   - Keep numbering/reference updates on the existing `payload.numbering -> applyNumbering()` path.
 - [ ] 3. Release far-offscreen PDF canvas bitmaps and rerender them when they return near the viewport.
@@ -252,12 +252,12 @@
 
 ### F. Block Hashes and Diff Improvements
 
-- [ ] Add a stable block hash helper.
-- [ ] Include `blockHash = hash(blockText)` in rendered block HTML and payload metadata.
-- [ ] Use hashes to detect unchanged blocks in the webview.
-- [ ] Stop comparing `oldEl.outerHTML !== newEl.outerHTML`.
-- [ ] Add hash-based tests for unchanged DOM preservation.
-- [ ] Keep numbering/reference changes out of block hashes so the existing lightweight numbering patch remains effective.
+- [x] Add a stable block hash helper.
+- [x] Include `blockHash = hash(blockText)` in rendered block HTML.
+- [x] Use hashes to detect unchanged blocks in the webview.
+- [x] Stop comparing `oldEl.outerHTML !== newEl.outerHTML`.
+- [x] Add hash-based tests for unchanged DOM preservation.
+- [x] Keep numbering/reference changes out of block hashes so the existing lightweight numbering patch remains effective.
 
 ### G. Architecture Refactoring
 

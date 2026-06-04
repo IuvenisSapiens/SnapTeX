@@ -760,7 +760,7 @@
                 this.setState('RENDERING');
                 const scrollState = this.saveScrollState();
                 document.body.classList.add('preload-mode');
-                this.smartFullUpdate(payload.html);
+                this.smartFullUpdate(payload.html, payload.preserveUnchangedBlocks !== false);
                 this.logDomStats('after full update');
                 document.fonts.ready.then(() => {
                     requestAnimationFrame(() => {
@@ -1034,7 +1034,17 @@
             }
         }
 
-        smartFullUpdate(newHtml) {
+        shouldReplaceBlock(oldBlock, newBlock, preserveUnchangedBlocks) {
+            if (!preserveUnchangedBlocks) return true;
+
+            const oldHash = oldBlock.getAttribute('data-block-hash');
+            const newHash = newBlock.getAttribute('data-block-hash');
+            if (!oldHash || !newHash) return true;
+
+            return oldHash !== newHash;
+        }
+
+        smartFullUpdate(newHtml, preserveUnchangedBlocks = true) {
             const parser = new DOMParser();
             const newDoc = parser.parseFromString(newHtml, 'text/html');
             const newElements = Array.from(newDoc.body.children);
@@ -1045,7 +1055,7 @@
                 const oldEl = oldElements[i];
                 if (!newEl) { if (oldEl) oldEl.remove(); continue; }
                 if (!oldEl) { this.contentRoot.appendChild(newEl); continue; }
-                if (oldEl.outerHTML !== newEl.outerHTML) {
+                if (this.shouldReplaceBlock(oldEl, newEl, preserveUnchangedBlocks)) {
                     this.replaceBlockPreservingTikz(oldEl, newEl);
                 }
             }

@@ -14,7 +14,7 @@ import { ProtectionManager } from '../protection';
 import { LatexCounterScanner } from '../scanner';
 import { LatexBlockSplitter } from '../splitter';
 import { SmartRenderer } from '../renderer';
-import { cleanLatexCommands, extractAndHideLabels, findCommand, normalizeUri, resolveLatexStyles } from '../utils';
+import { cleanLatexCommands, extractAndHideLabels, findCommand, normalizeUri, resolveLatexStyles, stableHash } from '../utils';
 
 class MemoryFileProvider implements IFileProvider {
     constructor(private readonly files: Map<string, string> = new Map()) {}
@@ -393,6 +393,18 @@ suite('SmartRenderer', () => {
         assert.match(payload.htmls?.[0] ?? '', /B changed/);
     });
 
+    test('adds block hashes from block text only and disables hash preservation on macro changes', () => {
+        const renderer = new SmartRenderer(new MemoryFileProvider());
+        const first = renderer.render(createDocument(['$\\foo$'], { macros: { '\\foo': 'x' } }));
+        const next = renderer.render(createDocument(['$\\foo$'], { macros: { '\\foo': 'y' } }));
+
+        assert.equal(first.type, 'full');
+        assert.equal(next.type, 'full');
+        assert.match(first.htmls?.[0] ?? '', new RegExp(`data-block-hash="${stableHash('$\\foo$')}"`));
+        assert.match(next.htmls?.[0] ?? '', new RegExp(`data-block-hash="${stableHash('$\\foo$')}"`));
+        assert.equal(next.preserveUnchangedBlocks, false);
+    });
+
     test('uses full render when a replacement edit exceeds the fixed threshold', () => {
         const renderer = new SmartRenderer(new MemoryFileProvider());
         const oldBlocks = Array.from({ length: 300 }, (_, index) => `Block ${index}`);
@@ -665,6 +677,20 @@ suite('Webview resource loading', () => {
         assert.match(webviewSource, /svg\[role="img"\]:not\(\.tikz-stale-preview\)/);
         assert.match(styleSource, /\.tikz-container\[data-tikz-state="queued"\] > svg:not\(\.tikz-stale-preview\)/);
         assert.match(styleSource, /\.tikz-stale-preview/);
+    });
+
+    test('uses block hashes instead of outerHTML to preserve unchanged full-update blocks', () => {
+        const repoRoot = path.resolve(__dirname, '..', '..');
+        const rendererSource = fs.readFileSync(path.join(repoRoot, 'src', 'renderer.ts'), 'utf8');
+        const webviewSource = fs.readFileSync(path.join(repoRoot, 'media', 'webview.html'), 'utf8');
+
+        assert.match(rendererSource, /data-block-hash="\$\{stableHash\(text\)\}"/);
+        assert.match(rendererSource, /preserveUnchangedBlocks:\s*!macrosChanged/);
+        assert.match(webviewSource, /shouldReplaceBlock\(oldBlock, newBlock, preserveUnchangedBlocks\)/);
+        assert.match(webviewSource, /oldBlock\.getAttribute\('data-block-hash'\)/);
+        assert.match(webviewSource, /newBlock\.getAttribute\('data-block-hash'\)/);
+        assert.match(webviewSource, /this\.smartFullUpdate\(payload\.html, payload\.preserveUnchangedBlocks !== false\)/);
+        assert.doesNotMatch(webviewSource, /outerHTML !==/);
     });
 
     test('routes TikZ compile failures through the webview error state', () => {
