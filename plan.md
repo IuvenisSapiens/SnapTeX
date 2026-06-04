@@ -362,7 +362,7 @@
 - [x] Lock shell heights during mount and refresh real measured height only when the shell is not above the viewport.
 - [x] Make preview-to-editor double-click use shell/block index safely.
 - [x] Add height estimation and hash-based height cache.
-- [ ] Reevaluate `content-visibility` with shell virtualization.
+- [x] Reevaluate `content-visibility` with shell virtualization.
 
 ## Definition of Done for Future Blocks
 

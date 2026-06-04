@@ -1034,6 +1034,8 @@ suite('Webview resource loading', () => {
         assert.match(webviewSource, /shell\.style\.height = ''/);
         assert.match(webviewSource, /shell\.style\.minHeight = ''/);
         assert.match(styleSource, /\.latex-block-shell\s*\{[\s\S]*overflow: hidden;/);
+        assert.match(styleSource, /\.latex-block-shell\s*>\s*\.latex-block\s*\{[\s\S]*content-visibility: visible;/);
+        assert.match(styleSource, /\.latex-block-shell\s*>\s*\.latex-block\s*\{[\s\S]*contain-intrinsic-size: unset;/);
         assert.match(webviewSource, /updateMountedShells\(onMount, onMissingHtml, options = \{\}\)/);
         assert.match(webviewSource, /isShellInMountRange\(shell, direction = 'none'\)/);
         assert.match(webviewSource, /isShellInRetainRange\(shell\)/);
