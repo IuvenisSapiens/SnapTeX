@@ -981,8 +981,13 @@ suite('Webview resource loading', () => {
 
         assert.match(webviewSource, /collectTikzPreviews\(block\)/);
         assert.match(webviewSource, /attachStaleTikzPreviews\(block, previews\)/);
+        assert.match(webviewSource, /stashStaleTikzPreviewsOnShell\(shell, previews\)/);
+        assert.match(webviewSource, /consumeStaleTikzPreviewsFromShell\(shell\)/);
         assert.match(webviewSource, /replaceBlockPreservingTikz\(oldBlock, newBlock\)/);
         assert.match(webviewSource, /applyStaleTikzPreviewsToBlock\(newBlock, oldBlock\)/);
+        assert.match(webviewSource, /const staleTikzByIndex = new Map\(\)/);
+        assert.match(webviewSource, /this\.stashStaleTikzPreviewsOnShell\(shell, staleTikzByIndex\.get\(index\)\)/);
+        assert.match(webviewSource, /this\.attachStaleTikzPreviews\(block, this\.consumeStaleTikzPreviewsFromShell\(shell\)\)/);
         assert.match(webviewSource, /preview\.classList\.add\('tikz-stale-preview'\)/);
         assert.match(webviewSource, /container\.querySelectorAll\('\.tikz-stale-preview'\)\.forEach\(preview => preview\.remove\(\)\)/);
         assert.match(webviewSource, /svg\[role="img"\]:not\(\.tikz-stale-preview\)/);

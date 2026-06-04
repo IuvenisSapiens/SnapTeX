@@ -628,9 +628,21 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
         collectTikzPreviews(block) {
             if (!block) return [];
             return Array.from(block.querySelectorAll('.tikz-container')).map(container => {
-                const rendered = container.querySelector('svg[role="img"]:not(.tikz-stale-preview)');
+                const rendered = container.querySelector('svg[role="img"]:not(.tikz-stale-preview), svg:not(.tikz-stale-preview)');
                 return rendered ? rendered.cloneNode(true) : null;
             });
+        }
+
+        stashStaleTikzPreviewsOnShell(shell, previews) {
+            if (!shell || !previews || !previews.some(Boolean)) return;
+            shell._snaptexStaleTikzPreviews = previews;
+        }
+
+        consumeStaleTikzPreviewsFromShell(shell) {
+            if (!shell || !shell._snaptexStaleTikzPreviews) return null;
+            const previews = shell._snaptexStaleTikzPreviews;
+            delete shell._snaptexStaleTikzPreviews;
+            return previews;
         }
 
         attachStaleTikzPreviews(block, previews) {
@@ -661,6 +673,9 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
 
         onVirtualBlockMounted(block) {
             if (!block) return;
+
+            const shell = block.closest('.latex-block-shell');
+            this.attachStaleTikzPreviews(block, this.consumeStaleTikzPreviewsFromShell(shell));
 
             if (this.currentNumbering) {
                 requestAnimationFrame(() => this.applyNumbering(this.currentNumbering));
@@ -1228,10 +1243,16 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
         applyVirtualPatch(payload) {
             const { start, deleteCount, htmls = [], shift = 0 } = payload;
             const referenceNode = this.contentRoot.children[start + deleteCount] || null;
+            const staleTikzByIndex = new Map();
 
             for (let i = 0; i < deleteCount; i++) {
                 const shell = this.contentRoot.children[start];
                 if (!shell) break;
+                const index = shell.getAttribute('data-index');
+                const previews = this.collectTikzPreviews(shell);
+                if (index !== null && previews.some(Boolean)) {
+                    staleTikzByIndex.set(index, previews);
+                }
                 this.virtualization.rememberBlockHeight(shell);
                 this.virtualization.unobserveShell(shell);
                 shell.remove();
@@ -1245,6 +1266,8 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
                 if (!block) return;
 
                 const shell = this.virtualization.createShellForBlock(block);
+                const index = block.getAttribute('data-index');
+                this.stashStaleTikzPreviewsOnShell(shell, staleTikzByIndex.get(index));
                 insertedShells.push(shell);
             });
 
@@ -1269,7 +1292,9 @@ const vscode = window.snaptexVsCodeApi || acquireVsCodeApi();
                     const replacement = temp.firstElementChild;
                     if (!replacement) return;
 
+                    const previews = this.collectTikzPreviews(shell);
                     const newShell = this.virtualization.createShellForBlock(replacement);
+                    this.stashStaleTikzPreviewsOnShell(newShell, previews);
                     this.virtualization.unobserveShell(shell);
                     shell.replaceWith(newShell);
                 });
