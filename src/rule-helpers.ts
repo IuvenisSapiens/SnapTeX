@@ -1,6 +1,6 @@
 import katex from 'katex';
 import { RenderContext } from './types';
-import { escapeHtmlAttribute } from './utils';
+import { escapeHtmlAttribute, resolveLatexStyles } from './utils';
 
 export function renderMath(tex: string, displayMode: boolean, renderer: RenderContext): string {
     try {
@@ -36,6 +36,13 @@ export function recoverPreservedTokens(text: string): string {
         found += match[0];
     }
     return found;
+}
+
+export function renderCaptionContent(captionText: string, renderer: RenderContext): string {
+    const withMath = captionText.replace(/\$((?:\\.|[^\\$])+?)\$/g, (_match: string, content: string) => {
+        return renderMath(content.trim(), false, renderer);
+    });
+    return renderer.renderInline(resolveLatexStyles(withMath));
 }
 
 export function unwrapResizeboxAroundProtectedContent(text: string): string {
