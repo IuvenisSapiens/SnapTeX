@@ -1,0 +1,55 @@
+\documentclass{article}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{makecell}
+\usepackage{multirow}
+\usepackage{threeparttable}
+
+\newcommand{\snaptex}{SnapTeX}
+\newcommand{\ms}{\mathrm{ms}}
+
+\begin{document}
+
+\section{Complex Table Demo}
+
+This demo table is intentionally dense: it combines grouped headers, multirow
+labels, in-cell line breaks, table notes, and literal braces in one compact
+example.
+
+\begin{table}[!ht]
+\setlength\tabcolsep{0.6em}
+\begin{threeparttable}
+\caption{Illustrative rendering workload summary for \textbf{\snaptex} preview modes.}
+\label{tab:demo-complex-table}
+\centering
+\begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}lcccc}
+\toprule
+&& \multicolumn{2}{c}{Small document} & \multicolumn{2}{c}{Large document} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Mode & Workload & \textbf{Blocks} & \textbf{Latency} & \textbf{Blocks} & \textbf{Latency} \\
+\midrule
+\multirow{3}{*}{Full render}
+& Text + math & 46 & $38\,\ms$ & 620 & $410\,\ms$ \\
+& Figures & 8 & $92\,\ms$ & 74 & $1.8\,\mathrm{s}$\tnote{$\dagger$} \\
+& Tables & \multicolumn{2}{c}{\{tabular, booktabs\}} & \multicolumn{2}{c}{\{tabular*, makecell, notes\}} \\
+\cline{2-6}
+\multirow{3}{*}{Patch render}
+& Inline edit & 1 & $12\,\ms$ & 1 & $15\,\ms$ \\
+& Local equation & 2 & $19\,\ms$ & 2 & $24\,\ms$ \\
+& Local table cell & \makecell{$\Delta r=1$,\\ $\Delta c=2$} & $31\,\ms$ & \makecell{$\Delta r=1$,\\ $\Delta c=4$} & $37\,\ms$ \\
+\cline{2-6}
+\multirow{2}{*}{Virtual mode}
+& Mounted range & \makecell{viewport,\\ tooltips} & $18\,\ms$ & \makecell{viewport,\\ refs + tooltips} & $22\,\ms$\tnote{$\ddagger$} \\
+& Released range & \multicolumn{2}{c}{offscreen PDF canvases} & \multicolumn{2}{c}{far-offscreen PDF + TikZ blocks} \\
+\bottomrule
+\end{tabular*}
+\begin{tablenotes}[flushleft]\footnotesize
+    \item[$\dagger$] Numbers are invented for this demo; the row shows how a table note marker is rendered in a cell.
+    \item[$\ddagger$] Virtual mode keeps only viewport-near blocks mounted while preserving anchors for references and tooltips.
+\end{tablenotes}
+\end{threeparttable}
+\end{table}
+
+\end{document}
